@@ -1,0 +1,45 @@
+Source: seadrive-daemon
+Section: net
+Priority: extra
+Maintainer: Jonathan Xu <jonathan.xu@seafile.com>
+Build-Depends:
+    debhelper (>= 7),
+    autotools-dev,
+    libssl-dev,
+    libsqlite3-dev,
+    intltool,
+    libglib2.0-dev,
+    libevent-dev,
+    uuid-dev,
+    libtool,
+    libcurl4-openssl-dev,
+    valac,
+    libjansson-dev,
+    python,
+    libfuse-dev,
+    libsearpc-dev,
+Standards-Version: 3.9.5
+Homepage: http://seafile.com
+
+Package: seadrive-daemon
+Section: net
+Architecture: any
+Depends:
+    ${shlibs:Depends},
+    ${misc:Depends},
+    ${python:Depends},
+Suggests: seadrive-gui, seadrive-cli
+Description: SeaDrive daemon
+ File syncing and sharing software with file encryption and group
+ sharing, emphasis on reliability and high performance.
+ .
+ This package contains the SeaDrive daemon.
+
+Package: seadrive-daemon-dbg
+Section: debug
+Architecture: any
+Depends:
+    seadrive-daemon (= ${binary:Version}),
+    ${misc:Depends},
+Description: Debugging symbols for the seadrive-daemon package.
+ This package contains the debugging symbols for the seadrive-daemon package.
