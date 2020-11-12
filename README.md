@@ -29,4 +29,4 @@ make
 sudo make install
 ```
 
-**Note:** If you plan to package for distribution, you should compile with the latest tag instead of the master branch.
+**Note:** If you plan to package for distribution, you should compile with the latest tag instead of the master branch. Sometimes the latest tag for seadrive-gui project (https://github.com/haiwen/seadrive-gui) is higher than the tag here. In such case you should follow the tag in this project. For example, the latest tag for seadrive-fuse is v2.0.6 while for seadrive-gui is v2.0.7. You should build the package based on v2.0.6 tag from seadrive-gui too. This is because sometimes there is no update related to Linux in the new versions so this project is not updated.
