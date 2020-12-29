@@ -415,6 +415,11 @@ seafile_cache_path (const char *repo_id, const char *path, GError **error)
     return 0;
 }
 
+int seafile_uncache_path (const char *repo_id, const char *path, GError **error)
+{
+    return file_cache_mgr_uncache_path(repo_id, path);
+}
+
 static json_t *
 seafile_get_enc_repo_list (GError **error)
 {
@@ -602,7 +607,6 @@ seafile_diff (const char *repo_id, const char *arg1, const char *arg2, int fold_
     return g_list_reverse (ret);
 }
 
-#endif
 
 static void
 register_rpc_service ()
@@ -769,6 +773,10 @@ register_rpc_service ()
     searpc_server_register_function ("seadrive-rpcserver",
                                      seafile_cache_path,
                                      "seafile_cache_path",
+                                     searpc_signature_int__string_string());
+    searpc_server_register_function ("seadrive-rpcserver",
+                                     seafile_uncache_path,
+                                     "seafile_uncache_path",
                                      searpc_signature_int__string_string());
 
     searpc_server_register_function ("seadrive-rpcserver",

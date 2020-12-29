@@ -3452,3 +3452,19 @@ check_download_file_time_worker (void *data)
 
     return NULL;
 }
+
+#ifndef WIN32
+int
+file_cache_mgr_uncache_path (const char *repo_id, const char *path)
+{
+    FileCacheMgr *mgr = seaf->file_cache_mgr;
+    char *top_dir_path = mgr->priv->base_path;
+    char *deleted_path;
+
+    deleted_path = g_build_filename (top_dir_path, repo_id, path, NULL);
+    seaf_rm_recursive (deleted_path);
+    g_free (deleted_path);
+
+    return 0;
+}
+#endif
