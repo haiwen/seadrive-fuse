@@ -299,8 +299,6 @@ file_cache_mgr_getxattr_in_root (FileCacheMgr *mgr,
 int
 file_cache_mgr_uncache_path (const char *repo_id, const char *path);
 
-#endif  /* WIN32 */
-
 // {"downloading_files": [{"file_path":, "downloaded":, "total_download":}, ], "downloaded_files": [ten latest downloaded files]}
 json_t *
 file_cache_mgr_get_download_progress (FileCacheMgr *mgr);

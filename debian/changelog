@@ -1,3 +1,8 @@
+seadrive-daemon (2.0.12) unstable; urgency=low
+
+  * new upstream release
+
+ -- Jonathan Xu <jonathan.xu@seafile.com>  Mon, 25 Jan 2021 17:22:17 +0800
 seadrive-daemon (2.0.10) unstable; urgency=low
 
   * new upstream release
