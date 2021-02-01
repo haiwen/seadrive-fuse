@@ -3454,16 +3454,74 @@ check_download_file_time_worker (void *data)
 }
 
 #ifndef WIN32
+static int
+rm_file_and_active_path_recursive (const char *repo_id, const char *path, const char *active_path)
+{
+    SeafStat st;
+    int ret = 0;
+    GDir *dir;
+    const char *dname;
+    char *subpath;
+    char *sub_active_path;
+    GError *error = NULL;
+
+    if (seaf_stat (path, &st) < 0) {
+        seaf_warning ("Failed to stat %s: %s\n", path, strerror(errno));
+        return -1;
+    }
+
+    if (S_ISREG(st.st_mode)) {
+        ret = seaf_util_unlink (path);
+        seaf_sync_manager_delete_active_path (seaf->sync_mgr, repo_id, active_path);
+        return ret;
+    } else if (S_ISDIR (st.st_mode)) {
+        dir = g_dir_open (path, 0, &error);
+        if (error) {
+            seaf_warning ("Failed to open dir %s: %s\n", path, error->message);
+            return -1;
+        }
+
+        while ((dname = g_dir_read_name (dir)) != NULL) {
+            subpath = g_build_filename (path, dname, NULL);
+            sub_active_path = g_build_filename (active_path, dname, NULL);
+            ret = rm_file_and_active_path_recursive (repo_id, subpath, sub_active_path);
+            g_free (subpath);
+            g_free (sub_active_path);
+            if (ret < 0)
+                break;
+        }
+
+        g_dir_close (dir);
+
+        if (ret == 0) {
+            ret = seaf_util_rmdir (path);
+        }
+
+        return ret;
+    }
+
+    return ret;
+
+}
 int
 file_cache_mgr_uncache_path (const char *repo_id, const char *path)
 {
     FileCacheMgr *mgr = seaf->file_cache_mgr;
     char *top_dir_path = mgr->priv->base_path;
     char *deleted_path;
+    char *canon_path = NULL;
+
+    if (strcmp (path, "") != 0) {
+        canon_path = format_path (path);
+    } else {
+        canon_path = g_strdup(path);
+    }
 
     deleted_path = g_build_filename (top_dir_path, repo_id, path, NULL);
-    seaf_rm_recursive (deleted_path);
+    rm_file_and_active_path_recursive (repo_id, deleted_path, canon_path);
+
     g_free (deleted_path);
+    g_free (canon_path);
 
     return 0;
 }
