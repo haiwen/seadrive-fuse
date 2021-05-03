@@ -32,9 +32,11 @@
 #define HTTP_UNAUTHORIZED 401
 #define HTTP_FORBIDDEN 403
 #define HTTP_NOT_FOUND 404
+#define HTTP_REQUEST_TIME_OUT 408
 #define HTTP_NO_QUOTA 443
 #define HTTP_REPO_DELETED 444
 #define HTTP_REPO_CORRUPTED 445
+#define HTTP_REPO_TOO_LARGE 447
 #define HTTP_INTERNAL_SERVER_ERROR 500
 
 #define RESET_BYTES_INTERVAL_MSEC 1000
@@ -1016,6 +1018,8 @@ http_error_to_http_task_error (int status)
         return HTTP_TASK_ERR_REPO_DELETED;
     else if (status == HTTP_REPO_CORRUPTED)
         return HTTP_TASK_ERR_REPO_CORRUPTED;
+    else if (status == HTTP_REQUEST_TIME_OUT || status == HTTP_REPO_TOO_LARGE)
+        return HTTP_TASK_ERR_LIBRARY_TOO_LARGE;
     else
         return HTTP_TASK_ERR_UNKNOWN;
 }

@@ -357,6 +357,8 @@ sync_task_new (SyncInfo *info,
 #define SYNC_ERROR_ID_PATH_INVALID_CHARACTER    22
 #define SYNC_ERROR_ID_UPDATE_TO_READ_ONLY_REPO  23
 #define SYNC_ERROR_ID_CONFLICT                  24
+#define SYNC_ERROR_ID_UPDATE_NOT_IN_REPO        25
+#define SYNC_ERROR_ID_LIBRARY_TOO_LARGE         26
 
 #define SYNC_ERROR_ID_GENERAL_ERROR             100
 
@@ -501,6 +503,8 @@ transfer_error_to_error_id (int http_tx_error)
         return SYNC_ERROR_ID_LOCAL_DATA_CORRUPT;
     case HTTP_TASK_ERR_WRITE_LOCAL_DATA:
         return SYNC_ERROR_ID_WRITE_LOCAL_DATA;
+    case HTTP_TASK_ERR_LIBRARY_TOO_LARGE:
+        return SYNC_ERROR_ID_LIBRARY_TOO_LARGE;
     default:
         return SYNC_ERROR_ID_GENERAL_ERROR;
     }
@@ -594,6 +598,9 @@ update_sync_info_error_state (SyncTask *task, int new_state)
         info->perm_err_cnt = 0;
         info->in_perm_error = FALSE;
     }
+
+    if (task->tx_error_code == HTTP_TASK_ERR_LIBRARY_TOO_LARGE)
+        info->in_perm_error = TRUE;
 }
 
 static inline void
