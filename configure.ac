@@ -2,7 +2,7 @@ dnl Process this file with autoconf to produce a configure script.
 
 
 AC_PREREQ(2.61)
-AC_INIT([seadrive], [2.0.13], [jonathan.xu@seafile.com])
+AC_INIT([seadrive], [2.0.14], [jonathan.xu@seafile.com])
 AC_CONFIG_HEADER([config.h])
 
 AC_CONFIG_MACRO_DIR([m4])
