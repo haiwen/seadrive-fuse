@@ -607,6 +607,8 @@ seafile_diff (const char *repo_id, const char *arg1, const char *arg2, int fold_
     return g_list_reverse (ret);
 }
 
+#endif
+
 
 static void
 register_rpc_service ()
