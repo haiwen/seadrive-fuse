@@ -2626,6 +2626,15 @@ on_repo_http_uploaded (SeafileSession *seaf,
 
 #define MAX_COMMIT_SIZE 100 * (1 << 20) /* 100MB */
 
+static gboolean
+is_repo_writable (SeafRepo *repo)
+{
+    if (repo->is_readonly && seaf_repo_manager_get_folder_perm_timestamp (seaf->repo_mgr, repo->id) < 0)
+        return FALSE;
+
+    return TRUE;
+}
+
 static void
 handle_update_file_op (SeafRepo *repo, ChangeSet *changeset, const char *username,
                        JournalOp *op, gboolean renamed_from_ignored,
@@ -3078,6 +3087,11 @@ create_commit_from_changeset (SeafRepo *repo, ChangeSet *changeset,
     }
 
     if (strcmp (head->root_id, root_id) != 0) {
+        if (!is_repo_writable (repo)) {
+            seaf_warning ("Skip creating commit for read-only repo: %s.\n", repo->id);
+            ret = -1;
+            goto out;
+        }
         /* Calculate diff for more accurate commit descriptions. */
         diff_commit_roots (repo->id, repo->version, head->root_id, root_id, &diff_results, TRUE);
         desc = diff_results_to_description (diff_results);
