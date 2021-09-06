@@ -16,7 +16,6 @@ Build-Depends:
     valac,
     libjansson-dev,
     dh-python,
-    python,
     libfuse-dev,
     libsearpc-dev,
 Standards-Version: 3.9.5
