@@ -15,6 +15,7 @@ Build-Depends:
     libcurl4-openssl-dev,
     valac,
     libjansson-dev,
+    dh-python,
     python,
     libfuse-dev,
     libsearpc-dev,
