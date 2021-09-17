@@ -30,6 +30,7 @@
 #define CHECK_SERVER_LOCKED_FILES_INTERVAL 10 /* 10s */
 #define CHECK_LOCKED_FILES_INTERVAL 30 /* 30s */
 #define CHECK_FOLDER_PERMS_INTERVAL 30 /* 30s */
+#define MAX_RESYNC_COUNT 3
 #define CHECK_REPO_LIST_INTERVAL 1     /* 1s */
 
 struct _HttpServerState {
@@ -62,6 +63,8 @@ struct _SyncInfo {
     struct _SyncTask  *current_task;
 
     RepoInfo *repo_info;
+
+    int resync_count;
 
     gint64     last_sync_time;
 
@@ -680,9 +683,12 @@ seaf_sync_manager_set_task_error (SyncTask *task, int error)
 
         /* If local metadata is corrupted, remove local repo and resync later. */
         if (sync_error_id == SYNC_ERROR_ID_LOCAL_DATA_CORRUPT) {
-            seaf_message ("Repo %s(%s) local metadata is corrupted. Remove and resync later.\n",
-                          task->repo->name, task->repo->id);
-            seaf_repo_manager_mark_repo_deleted (seaf->repo_mgr, task->repo, FALSE);
+            if (task->info->resync_count < MAX_RESYNC_COUNT) {
+                seaf_message ("Repo %s(%s) local metadata is corrupted. Remove and resync later.\n",
+                              task->repo->name, task->repo->id);
+                seaf_repo_manager_mark_repo_deleted (seaf->repo_mgr, task->repo, FALSE);
+                ++(task->info->resync_count);
+            }
         }
 
         if (task->repo)
@@ -2328,7 +2334,10 @@ load_repo_tree_done (void *vresult)
     LoadRepoTreeAux *aux = vresult;
     SyncTask *task = aux->task;
 
+    SeafSyncManagerPriv *priv = seaf->sync_mgr->priv;
+
     if (aux->success) {
+        g_hash_table_remove (priv->repo_tokens, task->repo->id);
         transition_sync_state (task, SYNC_STATE_DONE);
     } else {
         seaf_sync_manager_set_task_error (task, SYNC_ERROR_DATA_CORRUPT);
@@ -2392,8 +2401,6 @@ handle_repo_fetched_clone (SeafileSession *seaf,
     if (!repo->worktree)
         seaf_repo_set_worktree (repo, info->repo_info->display_name);
 
-    /* clean repo token cache. */
-    g_hash_table_remove (mgr->priv->repo_tokens, repo->id);
     /* Set task->repo since the repo exists now. */
     task->repo = repo;
 
