@@ -897,11 +897,12 @@ http_post (CURL *curl, const char *url, const char *token,
 }
 
 static int
-http_api_post (CURL *curl, const char *url, const char *token,
-               const char *req_content, gint64 req_size,
-               int *rsp_status, char **rsp_content, gint64 *rsp_size,
-               gboolean timeout, int timeout_sec,
-               int *pcurl_error)
+http_api_post_common (CURL *curl, const char *url, const char *token,
+                      const char *header,
+                      const char *req_content, gint64 req_size,
+                      int *rsp_status, char **rsp_content, gint64 *rsp_size,
+                      gboolean timeout, int timeout_sec,
+                      int *pcurl_error)
 {
     char *token_header;
     struct curl_slist *headers = NULL;
@@ -914,7 +915,7 @@ http_api_post (CURL *curl, const char *url, const char *token,
     headers = curl_slist_append (headers, "Expect:");
 
     if (req_content)
-        headers = curl_slist_append (headers, "Content-Type: application/x-www-form-urlencoded");
+        headers = curl_slist_append (headers, header);
 
     if (token) {
         token_header = g_strdup_printf ("Authorization: Token %s", token);
@@ -929,6 +930,34 @@ http_api_post (CURL *curl, const char *url, const char *token,
                             timeout, timeout_sec, pcurl_error);
 
     curl_slist_free_all (headers);
+    return ret;
+}
+
+static int
+http_api_post (CURL *curl, const char *url, const char *token,
+               const char *req_content, gint64 req_size,
+               int *rsp_status, char **rsp_content, gint64 *rsp_size,
+               gboolean timeout, int timeout_sec,
+               int *pcurl_error)
+{
+    int ret;
+    char *header = "Content-Type: application/x-www-form-urlencoded";
+    ret = http_api_post_common (curl, url, token, header, req_content, req_size, rsp_status,
+                                rsp_content, rsp_size, timeout, timeout_sec, pcurl_error);
+    return ret;
+}
+
+static int
+http_api_json_post (CURL *curl, const char *url, const char *token,
+                    const char *req_content, gint64 req_size,
+                    int *rsp_status, char **rsp_content, gint64 *rsp_size,
+                    gboolean timeout, int timeout_sec,
+                    int *pcurl_error)
+{
+    int ret;
+    char *header = "Content-Type: application/json";
+    ret = http_api_post_common (curl, url, token, header, req_content, req_size, rsp_status,
+                                rsp_content, rsp_size, timeout, timeout_sec, pcurl_error);
     return ret;
 }
 
@@ -5087,7 +5116,7 @@ synchronous_move (Connection *conn, const char *host, const char *api_token,
     }
 
     if (status != HTTP_MOVED_PERMANENTLY) {
-        seaf_warning ("Bad response code for POST %s: %d.\n", url, status);
+        seaf_warning ("Bad response code for POST %s: %d, response error: %s.\n", url, status, (rsp_content ? rsp_content : "no response body"));
         ret = -1;
     }
 
@@ -5107,7 +5136,6 @@ asynchronous_move (Connection *conn, const char *host, const char *api_token,
 {
     CURL *curl = conn->curl;
     char *src_dir = NULL, *src_filename = NULL, *dst_dir = NULL;
-    char *esc_src_dir = NULL, *esc_src_filename = NULL, *esc_dst_dir = NULL;
     char *url = NULL;
     char *req_content = NULL;
     int status;
@@ -5115,6 +5143,8 @@ asynchronous_move (Connection *conn, const char *host, const char *api_token,
     gint64 rsp_size;
     int ret = 0;
     json_t *obj = NULL;
+    json_t *req_obj = NULL;
+    json_t *array = NULL;
     json_error_t jerror;
 
     src_dir = g_path_get_dirname (oldpath);
@@ -5130,22 +5160,24 @@ asynchronous_move (Connection *conn, const char *host, const char *api_token,
         dst_dir = g_strdup("/");
     }
 
-    esc_src_dir = g_uri_escape_string (src_dir, NULL, FALSE);
-    esc_src_filename = g_uri_escape_string (src_filename, NULL, FALSE);
-    esc_dst_dir = g_uri_escape_string (dst_dir, NULL, FALSE);
+    req_obj = json_object ();
+    json_object_set_new (req_obj, "src_repo_id", json_string(repo_id1));
+    json_object_set_new (req_obj, "src_parent_dir", json_string(src_dir));
 
-    req_content = g_strdup_printf ("operation=move&dirent_type=%s&"
-                                   "src_repo_id=%s&src_parent_dir=%s&src_dirent_name=%s&"
-                                   "dst_repo_id=%s&dst_parent_dir=%s",
-                                   (is_file ? "file" : "dir"),
-                                   repo_id1, esc_src_dir, esc_src_filename,
-                                   repo_id2, esc_dst_dir);
+    array = json_array ();
+    json_array_append_new (array, json_string(src_filename));
+    json_object_set_new (req_obj, "src_dirents", array);
 
-    url = g_strdup_printf ("%s/api/v2.1/copy-move-task/", host);
+    json_object_set_new (req_obj, "dst_repo_id", json_string(repo_id2));
+    json_object_set_new (req_obj, "dst_parent_dir", json_string(dst_dir));
 
-    if (http_api_post (curl, url, api_token, req_content, strlen(req_content),
-                       &status, &rsp_content, &rsp_size,
-                       TRUE, REPO_OPER_TIMEOUT, NULL) < 0) {
+    req_content = json_dumps (req_obj, 0);
+
+    url = g_strdup_printf ("%s/api/v2.1/repos/async-batch-move-item/", host);
+
+    if (http_api_json_post (curl, url, api_token, req_content, strlen(req_content),
+                            &status, &rsp_content, &rsp_size,
+                            TRUE, REPO_OPER_TIMEOUT, NULL) < 0) {
         conn->release = TRUE;
         ret = -1;
         goto out;
@@ -5154,7 +5186,7 @@ asynchronous_move (Connection *conn, const char *host, const char *api_token,
     curl_easy_reset (curl);
 
     if (status != HTTP_OK) {
-        seaf_warning ("Bad response code for POST %s: %d.\n", url, status);
+        seaf_warning ("Bad response code for POST %s: %d, response error: %s.\n", url, status, (rsp_content ? rsp_content : "no response body"));
         if (status == HTTP_NOT_FOUND && no_api)
             *no_api = TRUE;
         ret = -1;
@@ -5245,13 +5277,11 @@ out:
     g_free (src_dir);
     g_free (src_filename);
     g_free (dst_dir);
-    g_free (esc_src_dir);
-    g_free (esc_src_filename);
-    g_free (esc_dst_dir);
     g_free (url);
     g_free (req_content);
     g_free (rsp_content);
     json_decref (obj);
+    json_decref (req_obj);
     return ret;
 }
 
