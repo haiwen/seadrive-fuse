@@ -5206,7 +5206,7 @@ asynchronous_move (Connection *conn, const char *host, const char *api_token,
     }
 
     const char *task_id = json_string_value(json_object_get(obj, "task_id"));
-    if (!task_id) {
+    if (!task_id || strlen(task_id) == 0) {
         if (g_strcmp0 (repo_id1, repo_id2) == 0)
             goto out;
         seaf_warning ("No copy move task id returned from server.\n");
