@@ -82,6 +82,8 @@ struct _SyncInfo {
 
     gint       perm_err_cnt;
     gboolean   in_perm_error;        /* set to TRUE if err_cnt >= 3 */
+
+    gboolean del_confirmation_pending;
 };
 typedef struct _SyncInfo SyncInfo;
 
@@ -157,6 +159,10 @@ struct _SyncError {
 };
 typedef struct _SyncError SyncError;
 
+typedef struct DelConfirmationResult {
+    gboolean resync;
+} DelConfirmationResult;
+
 struct _SeafSyncManagerPriv {
     GHashTable *sync_infos;
     pthread_mutex_t infos_lock;
@@ -185,6 +191,9 @@ struct _SeafSyncManagerPriv {
     GAsyncQueue *cache_file_task_queue;
 
     gboolean auto_sync_enabled;
+
+    pthread_mutex_t del_confirmation_lock;
+    GHashTable *del_confirmation_tasks;
 };
 
 struct _ActivePathsInfo {
@@ -934,6 +943,11 @@ seaf_sync_manager_new (SeafileSession *seaf)
     office_temp_ignore_patterns[1] = g_pattern_spec_new("*.tmp");
     office_temp_ignore_patterns[2] = g_pattern_spec_new(".~lock*#");
     office_temp_ignore_patterns[3] = NULL;
+
+    mgr->priv->del_confirmation_tasks = g_hash_table_new_full (g_str_hash, g_str_equal,
+                                                           g_free,
+                                                           g_free);
+    pthread_mutex_init (&mgr->priv->del_confirmation_lock, NULL);
 
     mgr->priv->lock_file_job_queue = g_async_queue_new ();
 
@@ -2329,6 +2343,138 @@ create_commit_from_journal (SyncInfo *info, HttpServerState *state, SeafRepo *re
 static int
 check_head_commit_http (SyncTask *task);
 
+inline static char *
+get_basename (char *path)
+{
+    char *slash;
+    slash = strrchr (path, '/');
+    if (!slash)
+        return path;
+    return (slash + 1);
+}
+
+static char *
+exceed_max_deleted_files (SeafRepo *repo)
+{
+    SeafBranch *master = NULL, *local = NULL;
+    SeafCommit *local_head = NULL, *master_head = NULL;
+    GList *diff_results = NULL;
+    char *deleted_file = NULL;
+    GString *desc = NULL;
+    char *ret = NULL;
+
+    local = seaf_branch_manager_get_branch (seaf->branch_mgr, repo->id, "local");
+    if (!local) {
+        seaf_warning ("No local branch found for repo %s(%.8s).\n",
+                      repo->name, repo->id);
+        goto out;
+    }
+
+    master = seaf_branch_manager_get_branch (seaf->branch_mgr, repo->id, "master");
+    if (!master) {
+        seaf_warning ("No master branch found for repo %s(%.8s).\n",
+                      repo->name, repo->id);
+        goto out;
+    }
+
+    local_head = seaf_commit_manager_get_commit (seaf->commit_mgr, repo->id, repo->version,
+                                                 local->commit_id);
+    if (!local_head) {
+        seaf_warning ("Failed to get head of local branch for repo %s.\n", repo->id);
+        goto out;
+    }
+
+    master_head = seaf_commit_manager_get_commit (seaf->commit_mgr, repo->id, repo->version,
+                                                  master->commit_id);
+    if (!master_head) {
+        seaf_warning ("Failed to get head of master branch for repo %s.\n", repo->id);
+        goto out;
+    }
+
+    diff_commit_roots (repo->id, repo->version, master_head->root_id, local_head->root_id, &diff_results, TRUE);
+    if (!diff_results) {
+        goto out;
+    }
+    GList *p;
+    DiffEntry *de;
+    int n_deleted = 0;
+
+    for (p = diff_results; p != NULL; p = p->next) {
+        de = p->data;
+        switch (de->status) {
+        case DIFF_STATUS_DELETED:
+            if (n_deleted == 0)
+                deleted_file = get_basename(de->name);
+            n_deleted++;
+            break;
+        }
+    }
+
+    if (n_deleted >= seaf->delete_confirm_threshold) {
+        desc = g_string_new ("");
+        g_string_append_printf (desc, "Deleted \"%s\" and %d more files.\n",
+                                deleted_file, n_deleted - 1);
+        ret = g_string_free (desc, FALSE);
+    }
+
+out:
+    seaf_branch_unref (local);
+    seaf_branch_unref (master);
+    seaf_commit_unref (local_head);
+    seaf_commit_unref (master_head);
+    g_list_free_full (diff_results, (GDestroyNotify)diff_entry_free);
+
+    return ret;
+}
+
+static void
+notify_delete_confirmation (const char *repo_name, const char *desc, const char *confirmation_id)
+{
+    json_t *msg = json_object ();
+    json_object_set_string_member (msg, "type", "del_confirmation");
+    json_object_set_string_member (msg, "repo_name", json_string(repo_name));
+    json_object_set_string_member (msg, "delete_files", json_string(desc));
+    json_object_set_new (msg, "confirmation_id", json_string(confirmation_id));
+    mq_mgr_push_msg (seaf->mq_mgr, SEADRIVE_NOTIFY_CHAN, msg);
+}
+
+int
+seaf_sync_manager_add_del_confirmation (SeafSyncManager *mgr,
+                                        const char *confirmation_id,
+                                        gboolean resync)
+{
+    SeafSyncManagerPriv *priv = seaf->sync_mgr->priv;
+    DelConfirmationResult *result = NULL;
+
+    result = g_new0 (DelConfirmationResult, 1);
+    result->resync = resync;
+
+    pthread_mutex_lock (&priv->del_confirmation_lock);
+    g_hash_table_insert (priv->del_confirmation_tasks, g_strdup (confirmation_id), result);
+    pthread_mutex_unlock (&priv->del_confirmation_lock);
+
+    return 0;
+}
+
+static DelConfirmationResult *
+get_del_confirmation_result (const char *confirmation_id)
+{
+    SeafSyncManagerPriv *priv = seaf->sync_mgr->priv;
+    DelConfirmationResult *result, *copy = NULL;
+
+
+    pthread_mutex_lock (&priv->del_confirmation_lock);
+    result = g_hash_table_lookup (priv->del_confirmation_tasks, confirmation_id);
+    if (result) {
+        copy = g_new0 (DelConfirmationResult, 1);
+        copy->resync = result->resync;
+        g_hash_table_remove (priv->del_confirmation_tasks, confirmation_id); 
+    }
+    pthread_mutex_unlock (&priv->del_confirmation_lock);
+
+    return copy;
+}
+
 static void
 sync_repo (SeafSyncManager *manager,
            HttpServerState *state,
@@ -2357,6 +2503,36 @@ sync_repo (SeafSyncManager *manager,
                 repo->force_sync_pending = FALSE;
             task = sync_task_new (sync_info, state, repo->token, FALSE);
 
+            if (!sync_info->del_confirmation_pending) {
+                char *desc = NULL;
+                desc = exceed_max_deleted_files (repo);
+                if (desc) {
+                    notify_delete_confirmation (repo->name, desc, local->commit_id);
+                    seaf_warning ("Delete more than %d files, add delete confirmation.\n", seaf->delete_confirm_threshold);
+                    sync_info->del_confirmation_pending = TRUE;
+                    seaf_sync_manager_set_task_error (task, SYNC_ERROR_DEL_CONFIRMATION_PENDING);
+                    g_free (desc);
+                    goto out;
+                }
+            } else {
+                DelConfirmationResult *result = get_del_confirmation_result (local->commit_id);
+                if (!result) {
+                    // User has not confirmed whether to continue syncing.
+                    seaf_sync_manager_set_task_error (task, SYNC_ERROR_DEL_CONFIRMATION_PENDING);
+                    goto out;
+                } else if (result->resync) {
+                    // User chooses to resync.
+                    g_free (result);
+                    seaf_sync_manager_set_task_error (task, SYNC_ERROR_DEL_CONFIRMATION_PENDING);
+                    // Delete this repo. It'll be re-synced when checking repo list next time.
+                    seaf_repo_manager_mark_repo_deleted (seaf->repo_mgr, repo, FALSE);
+                    goto out;
+                }
+                // User chooes to continue syncing.
+                g_free (result);
+                sync_info->del_confirmation_pending = FALSE;
+            }
+
             int rc = http_tx_manager_add_upload (seaf->http_tx_mgr,
                                                  repo->id,
                                                  repo->version,
@@ -2371,7 +2547,7 @@ sync_repo (SeafSyncManager *manager,
                 seaf_warning ("Failed to add upload task for repo %s to %s.\n",
                               sync_info->repo_id, state->effective_host);
                 seaf_sync_manager_set_task_error (task, SYNC_ERROR_START_UPLOAD);
-                return;
+                goto out;
             }
 
             transition_sync_state (task, SYNC_STATE_UPLOAD);
@@ -3726,6 +3902,17 @@ commit_job_done (void *vres)
     }
 
     if (res->changed) {
+        char *desc = NULL;
+        desc = exceed_max_deleted_files (repo);
+        if (desc) {
+            notify_delete_confirmation (repo->name, desc, repo->head->commit_id);
+            seaf_warning ("Delete more than %d files, add delete confirmation.\n", seaf->delete_confirm_threshold);
+            task->info->del_confirmation_pending = TRUE;
+            seaf_sync_manager_set_task_error (res->task, SYNC_ERROR_DEL_CONFIRMATION_PENDING);
+            g_free (desc);
+            g_free (res);
+            return;
+        }
         int rc = http_tx_manager_add_upload (seaf->http_tx_mgr,
                                              repo->id,
                                              repo->version,

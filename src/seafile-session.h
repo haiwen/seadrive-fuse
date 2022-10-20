@@ -91,6 +91,8 @@ struct _SeafileSession {
     gint64               last_check_repo_list_time;
     gint64               last_access_fs_time;
 
+    int                  delete_confirm_threshold;
+
     SeafLang             language;
 };
 

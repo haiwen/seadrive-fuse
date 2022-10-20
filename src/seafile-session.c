@@ -296,6 +296,8 @@ generate_client_id ()
 
 #define OFFICE_LOCK_PATTERN "~\\$(.+)$"
 
+#define MAX_DELETED_FILES_NUM 500
+
 void
 seafile_session_prepare (SeafileSession *session)
 {
@@ -357,6 +359,11 @@ seafile_session_prepare (SeafileSession *session)
                       error->message);
         g_regex_unref (session->office_lock_file_regex);
         session->office_lock_file_regex = NULL;
+    }
+
+    session->delete_confirm_threshold = seafile_session_config_get_int(session, DELETE_CONFIRM_THRESHOLD, NULL);
+    if (session->delete_confirm_threshold <= 0) {
+        session->delete_confirm_threshold = MAX_DELETED_FILES_NUM;
     }
 
     seaf_commit_manager_init (session->commit_mgr);

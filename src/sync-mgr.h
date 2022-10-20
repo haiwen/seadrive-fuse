@@ -264,4 +264,9 @@ seaf_sync_manager_set_last_sync_time (SeafSyncManager *mgr,
                                       const char *repo_id,
                                       gint64 last_sync_time);
 
+int
+seaf_sync_manager_add_del_confirmation (SeafSyncManager *mgr,
+                                        const char *confirmation_id,
+                                        gboolean resync);
+
 #endif

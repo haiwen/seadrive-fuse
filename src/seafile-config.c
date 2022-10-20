@@ -196,6 +196,10 @@ seafile_session_config_set_int (SeafileSession *session,
         session->http_proxy_port = value;
     }
 
+    if (g_strcmp0 (key, DELETE_CONFIRM_THRESHOLD) == 0) {
+        session->delete_confirm_threshold = value;
+    }
+
     return 0;
 }
 
