@@ -1466,6 +1466,19 @@ marshal_json__void (void *func, json_t *param_array, gsize *ret_len)
     return searpc_marshal_set_ret_common (object, ret_len, error);
 }
 
+static char *
+marshal_json__string(void *func, json_t *param_array, gsize *ret_len)
+{
+    GError *error = NULL;
+    const char* param1 = json_array_get_string_or_null_element (param_array, 1);
+
+    json_t* ret = ((json_t* (*)(const char*, GError **))func) (param1, &error);
+
+    json_t *object = json_object ();
+    searpc_set_json_to_ret_object (object, ret);
+    return searpc_marshal_set_ret_common (object, ret_len, error);
+}
+
 static void register_marshals()
 {
 
@@ -1911,6 +1924,11 @@ static void register_marshals()
 
     {
         searpc_server_register_marshal (searpc_signature_json__void(), marshal_json__void);
+    }
+
+
+    {
+        searpc_server_register_marshal (searpc_signature_json__string(), marshal_json__string);
     }
 
 }

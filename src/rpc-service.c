@@ -502,6 +502,12 @@ add_del_confirmation (const char *confirmation_id, int resync, GError **error)
     return seaf_sync_manager_add_del_confirmation (seaf->sync_mgr, confirmation_id, resync);
 }
 
+static json_t *
+seafile_get_account_by_repo_id (const char *repo_id, GError **error)
+{
+    return seaf_repo_manager_get_account_by_repo_id (seaf->repo_mgr, repo_id);
+}
+
 #if 0
 
 static GObject *
@@ -806,6 +812,10 @@ register_rpc_service ()
                                      add_del_confirmation,
                                      "add_del_confirmation",
                                      searpc_signature_int__string_int());
+    searpc_server_register_function ("seadrive-rpcserver",
+                                     seafile_get_account_by_repo_id,
+                                     "seafile_get_account_by_repo_id",
+                                     searpc_signature_json__string());
 
 #if 0
     searpc_server_register_function ("seadrive-rpcserver",

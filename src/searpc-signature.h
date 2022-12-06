@@ -621,3 +621,8 @@ searpc_signature_json__void()
     return searpc_compute_signature ("json", 0);
 }
 
+inline static gchar *
+searpc_signature_json__string()
+{
+    return searpc_compute_signature ("json", 1, "string");
+}

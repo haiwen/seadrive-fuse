@@ -3958,3 +3958,23 @@ seaf_repo_manager_clear_enc_repo_passwd (const char *repo_id)
 
     return 0;
 }
+
+json_t *
+seaf_repo_manager_get_account_by_repo_id (SeafRepoManager *mgr, const char *repo_id)
+{
+    json_t *object = NULL;
+
+    SeafRepo *repo = seaf_repo_manager_get_repo (mgr, repo_id);
+    if (!repo) {
+        return NULL;
+    }
+
+    object = json_object();
+    json_object_set (object, "server", json_string(repo->server));
+    json_object_set (object, "username", json_string(repo->user));
+
+    seaf_repo_unref (repo);
+
+    return object;
+}
+
