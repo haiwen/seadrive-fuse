@@ -215,6 +215,8 @@ seafile_session_new(const char *seafile_dir)
 
     session->job_mgr = seaf_job_manager_new (session, MAX_THREADS);
 
+    session->notif_mgr = seaf_notif_manager_new (session);
+
     return session;
 
 onerror:

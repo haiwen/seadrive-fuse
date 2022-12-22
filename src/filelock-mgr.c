@@ -26,8 +26,6 @@ typedef struct _LockInfo {
  * - Locked by the user manually
  * - Auto-Locked by Seafile when it detects Office opens the file.
  */
-#define _LOCKED_MANUAL 1
-#define _LOCKED_AUTO 2
 
 struct _SeafFilelockManager *
 seaf_filelock_manager_new (struct _SeafileSession *session)
@@ -203,9 +201,9 @@ seaf_filelock_manager_get_lock_status (SeafFilelockManager *mgr,
         return FILE_NOT_LOCKED;
     }
 
-    if (info->locked_by_me == _LOCKED_MANUAL)
+    if (info->locked_by_me == LOCKED_MANUAL)
         ret = FILE_LOCKED_BY_ME_MANUAL;
-    else if (info->locked_by_me == _LOCKED_AUTO)
+    else if (info->locked_by_me == LOCKED_AUTO)
         ret = FILE_LOCKED_BY_ME_AUTO;
     else
         ret = FILE_LOCKED_BY_OTHERS;
@@ -483,7 +481,7 @@ int
 seaf_filelock_manager_mark_file_locked (SeafFilelockManager *mgr,
                                         const char *repo_id,
                                         const char *path,
-                                        gboolean is_auto_lock)
+                                        FileLockType type)
 {
     GHashTable *locks;
     LockInfo *info;
@@ -504,10 +502,7 @@ seaf_filelock_manager_mark_file_locked (SeafFilelockManager *mgr,
         g_hash_table_insert (locks, g_strdup(path), info);
     }
 
-    if (!is_auto_lock)
-        info->locked_by_me = _LOCKED_MANUAL;
-    else
-        info->locked_by_me = _LOCKED_AUTO;
+    info->locked_by_me = type;
 
     pthread_mutex_unlock (&mgr->priv->hash_lock);
 
@@ -562,4 +557,35 @@ seaf_filelock_manager_mark_file_unlocked (SeafFilelockManager *mgr,
     pthread_mutex_unlock (&mgr->priv->hash_lock);
 
     return remove_locked_file_from_db (mgr, repo_id, path);
+}
+
+int
+seaf_filelock_manager_lock_file (SeafFilelockManager *mgr,
+                                 const char *repo_id,
+                                 const char *path,
+                                 FileLockType type)
+{
+    int ret = -1;
+
+    ret = seaf_filelock_manager_mark_file_locked (seaf->filelock_mgr, repo_id, path, type);
+    if (ret < 0) {
+        return ret;
+    }
+
+    return 0;
+}
+
+int
+seaf_filelock_manager_unlock_file (SeafFilelockManager *mgr,
+                                   const char *repo_id,
+                                   const char *path)
+{
+    int ret = -1;
+
+    ret = seaf_filelock_manager_mark_file_unlocked (mgr, repo_id, path);
+    if (ret < 0) {
+        return ret;
+    }
+
+    return 0;
 }

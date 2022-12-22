@@ -165,6 +165,16 @@ http_tx_manager_check_protocol_version (HttpTxManager *manager,
                                         HttpProtocolVersionCallback callback,
                                         void *user_data);
 
+typedef void (*HttpNotifServerCallback) (gboolean is_alive,
+                                         void *user_data);
+
+int
+http_tx_manager_check_notif_server (HttpTxManager *manager,
+                                    const char *host,
+                                    gboolean use_notif_server_port,
+                                    HttpNotifServerCallback callback,
+                                    void *user_data);
+
 struct _HttpHeadCommit {
     gboolean check_success;
     gboolean perm_denied;

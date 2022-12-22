@@ -18,6 +18,7 @@
 #include "filelock-mgr.h"
 #include "file-cache-mgr.h"
 #include "mq-mgr.h"
+#include "notif-mgr.h"
 
 #define SEAFILE_TYPE_SESSION                  (seafile_session_get_type ())
 #define SEAFILE_SESSION(obj)                  (G_TYPE_CHECK_INSTANCE_CAST ((obj), SEAFILE_TYPE_SESSION, SeafileSession))
@@ -60,6 +61,7 @@ struct _SeafileSession {
     SeafBranchManager   *branch_mgr;
     SeafRepoManager     *repo_mgr;
     SeafSyncManager     *sync_mgr;
+    SeafNotifManager     *notif_mgr;
 
     SeafJobManager     *job_mgr;
 

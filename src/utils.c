@@ -765,3 +765,19 @@ format_path (const char *path)
 
     return rpath;
 }
+
+char *
+parse_fileserver_addr (const char *server_addr)
+{
+    char *location = strstr(server_addr, "//");
+    if (!location)
+        return NULL;
+    location += 2;
+
+    char *sep = strchr (location, '/');
+    if (!sep) {
+        return g_strdup(server_addr);
+    } else {
+        return g_strndup (server_addr, sep - server_addr);
+    }
+}

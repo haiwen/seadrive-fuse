@@ -98,6 +98,7 @@ static GDebugKey debug_keys[] = {
   { "Merge", SEAFILE_DEBUG_MERGE },
   { "Fs", SEAFILE_DEBUG_FS },
   { "Curl", SEAFILE_DEBUG_CURL },
+  { "Notification", SEAFILE_DEBUG_NOTIFICATION },
   { "Other", SEAFILE_DEBUG_OTHER },
 };
 

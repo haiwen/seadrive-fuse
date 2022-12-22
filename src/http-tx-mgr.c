@@ -1284,6 +1284,105 @@ http_tx_manager_check_protocol_version (HttpTxManager *manager,
     return ret;
 }
 
+typedef struct {
+    char *host;
+    gboolean use_notif_server_port;
+    HttpNotifServerCallback callback;
+    void *user_data;
+
+    gboolean success;
+    gboolean not_supported;
+} CheckNotifServerData;
+
+static void *
+check_notif_server_thread (void *vdata)
+{
+    CheckNotifServerData *data = vdata;
+    HttpTxPriv *priv = seaf->http_tx_mgr->priv;
+    ConnectionPool *pool;
+    Connection *conn;
+    CURL *curl;
+    char *url;
+    int status;
+    char *rsp_content = NULL;
+    gint64 rsp_size;
+
+    pool = find_connection_pool (priv, data->host);
+    if (!pool) {
+        seaf_warning ("Failed to create connection pool for host %s.\n", data->host);
+        return vdata;
+    }
+
+    conn = connection_pool_get_connection (pool);
+    if (!conn) {
+        seaf_warning ("Failed to get connection to host %s.\n", data->host);
+        return vdata;
+    }
+
+    curl = conn->curl;
+
+    if (!data->use_notif_server_port)
+        url = g_strdup_printf ("%s/notification/ping", data->host);
+    else
+        url = g_strdup_printf ("%s/ping", data->host);
+
+    int curl_error;
+    if (http_get (curl, url, NULL, &status, &rsp_content, &rsp_size, NULL, NULL, TRUE, HTTP_TIMEOUT_SEC, &curl_error) < 0) {
+        conn->release = TRUE;
+        goto out;
+    }
+
+    data->success = TRUE;
+
+    if (status != HTTP_OK) {
+        data->not_supported = TRUE;
+    }
+
+out:
+    g_free (url);
+    g_free (rsp_content);
+    connection_pool_return_connection (pool, conn);
+
+    return vdata;
+}
+
+static void
+check_notif_server_done (void *vdata)
+{
+    CheckNotifServerData *data = vdata;
+
+    data->callback ((data->success && !data->not_supported), data->user_data);
+
+    g_free (data->host);
+    g_free (data);
+}
+
+int
+http_tx_manager_check_notif_server (HttpTxManager *manager,
+                                    const char *host,
+                                    gboolean use_notif_server_port,
+                                    HttpNotifServerCallback callback,
+                                    void *user_data)
+{
+    CheckNotifServerData *data = g_new0 (CheckNotifServerData, 1);
+
+    data->host = g_strdup(host);
+    data->use_notif_server_port = use_notif_server_port;
+    data->callback = callback;
+    data->user_data = user_data;
+
+    int ret = seaf_job_manager_schedule_job (seaf->job_mgr,
+                                             check_notif_server_thread,
+                                             check_notif_server_done,
+                                             data);
+    if (ret < 0) {
+        g_free (data->host);
+        g_free (data);
+    }
+
+    return ret;
+}
+
 /* Check Head Commit. */
 
 typedef struct {

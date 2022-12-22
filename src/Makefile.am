@@ -48,6 +48,7 @@ noinst_HEADERS = \
 	file-cache-mgr.h \
 	sync-status-tree.h \
 	mq-mgr.h \
+	notif-mgr.h \
 	common.h \
 	obj-backend.h \
 	searpc-signature.h \
@@ -86,20 +87,21 @@ seadrive_SOURCES = \
 	utils.c \
 	file-cache-mgr.c \
 	sync-status-tree.c \
-	mq-mgr.c
+	mq-mgr.c \
+	notif-mgr.c
 
 if WIN32
 seadrive_LDADD = @LIB_INTL@ @GLIB2_LIBS@ @GOBJECT_LIBS@ \
 	@SSL_LIBS@ @LIB_RT@ @LIB_UUID@ -lsqlite3 @LIBEVENT_LIBS@ \
 	@LIB_WS32@ @LIB_CRYPT32@ \
 	@JANSSON_LIBS@ @LIB_MAC@ @ZLIB_LIBS@ @CURL_LIBS@ @BPWRAPPER_LIBS@ \
-	@FUSE_LIBS@ @SEARPC_LIBS@
+	@FUSE_LIBS@ @SEARPC_LIBS@ @WS_LIBS@
 else
 seadrive_LDADD = @LIB_INTL@ @GLIB2_LIBS@ @GOBJECT_LIBS@ \
 	@SSL_LIBS@ @LIB_RT@ @LIB_UUID@ -lsqlite3 @LIBEVENT_LIBS@ \
 	@LIB_WS32@ @LIB_CRYPT32@ \
 	@JANSSON_LIBS@ @LIB_MAC@ @ZLIB_LIBS@ @CURL_LIBS@ @BPWRAPPER_LIBS@ \
-	@FUSE_LIBS@ @SEARPC_LIBS@
+	@FUSE_LIBS@ @SEARPC_LIBS@ @WS_LIBS@
 endif
 
 seadrive_LDFLAGS = @CONSOLE@

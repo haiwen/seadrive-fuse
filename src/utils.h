@@ -253,4 +253,6 @@ static inline unsigned int create_mode(unsigned int mode)
     return S_IFREG | mk_permissions(mode);
 }
 
+char *
+parse_fileserver_addr (const char *server_addr);
 #endif
