@@ -497,7 +497,7 @@ seafile_clear_enc_repo_passwd (const char *repo_id, GError **error)
 }
 
 static int
-add_del_confirmation (const char *confirmation_id, int resync, GError **error)
+seafile_add_del_confirmation (const char *confirmation_id, int resync, GError **error)
 {
     return seaf_sync_manager_add_del_confirmation (seaf->sync_mgr, confirmation_id, resync);
 }
@@ -809,8 +809,8 @@ register_rpc_service ()
                                      searpc_signature_int__string());
 
     searpc_server_register_function ("seadrive-rpcserver",
-                                     add_del_confirmation,
-                                     "add_del_confirmation",
+                                     seafile_add_del_confirmation,
+                                     "seafile_add_del_confirmation",
                                      searpc_signature_int__string_int());
     searpc_server_register_function ("seadrive-rpcserver",
                                      seafile_get_account_by_repo_id,
