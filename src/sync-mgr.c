@@ -2498,7 +2498,7 @@ sync_repo (SeafSyncManager *manager,
     }
 
     if (strcmp (local->commit_id, master->commit_id) != 0) {
-        if (can_schedule_repo (sync_info) || repo->force_sync_pending) {
+        if (can_schedule_repo (sync_info) || repo->force_sync_pending || sync_info->del_confirmation_pending) {
             if (repo->force_sync_pending)
                 repo->force_sync_pending = FALSE;
             task = sync_task_new (sync_info, state, repo->token, FALSE);
