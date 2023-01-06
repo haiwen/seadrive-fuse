@@ -1762,6 +1762,40 @@ fileserver_get_jwt_token_cb (HttpAPIGetResult *result, void *user_data)
     return;
 }
 
+static int
+check_and_subscribe_repo (HttpServerState *state, SeafRepo *repo)
+{
+    char *url = NULL;
+
+    if (!state->notif_server_alive) {
+        return 0;
+    }
+
+    gint64 now = (gint64)time(NULL);
+    if (now - repo->last_check_jwt_token > JWT_TOKEN_EXPIRE_TIME) {
+        repo->last_check_jwt_token = now;
+        if (!state->use_fileserver_port)
+            url = g_strdup_printf ("%s/seafhttp/repo/%s/jwt-token", state->effective_host, repo->id);
+        else
+            url = g_strdup_printf ("%s/repo/%s/jwt-token", state->effective_host, repo->id);
+
+        http_tx_manager_fileserver_api_get (seaf->http_tx_mgr,
+                                            state->effective_host,
+                                            url,
+                                            repo->token,
+                                            fileserver_get_jwt_token_cb,
+                                            repo->id);
+        g_free (url);
+        return 0;
+    }
+    if (!seaf_notif_manager_is_repo_subscribed (seaf->notif_mgr, repo)) {
+        if (repo->jwt_token)
+            seaf_notif_manager_subscribe_repo (seaf->notif_mgr, repo);
+    }
+
+    return 0;
+}
+
 static void
 clone_repo (SeafSyncManager *manager,
             SeafAccount *account,
@@ -1785,7 +1819,6 @@ auto_sync_pulse (void *vmanager)
     SeafRepo *repo;
     HttpServerState *state;
     gboolean all_repos_loaded = TRUE;
-    char *url = NULL;
 
     if (!manager->priv->auto_sync_enabled)
         return TRUE;
@@ -1924,28 +1957,7 @@ auto_sync_pulse (void *vmanager)
 
         sync_repo (manager, state, sync_info, repo);
 
-        gint64 now = (gint64)time(NULL);
-        if (now - repo->last_check_jwt_token > JWT_TOKEN_EXPIRE_TIME) {
-            repo->last_check_jwt_token = now;
-            if (!state->use_fileserver_port)
-                url = g_strdup_printf ("%s/seafhttp/repo/%s/jwt-token", state->effective_host, repo->id);
-            else
-                url = g_strdup_printf ("%s/repo/%s/jwt-token", state->effective_host, repo->id);
-
-            http_tx_manager_fileserver_api_get (seaf->http_tx_mgr,
-                                                state->effective_host,
-                                                url,
-                                                repo->token,
-                                                fileserver_get_jwt_token_cb,
-                                                repo->id);
-            g_free (url);
-            seaf_repo_unref (repo);
-            continue;
-        }
-        if (!seaf_notif_manager_is_repo_subscribed (seaf->notif_mgr, repo)) {
-            if (repo->jwt_token)
-                seaf_notif_manager_subscribe_repo (seaf->notif_mgr, repo);
-        }
+        check_and_subscribe_repo (state, repo);
 
         seaf_repo_unref (repo);
     }
