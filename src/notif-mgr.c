@@ -853,13 +853,6 @@ notification_worker (void *vdata)
         seaf_sleep (RECONNECT_INTERVAL);
         n = 0;
         server->status = STATUS_DISCONNECTED;
-
-        lws_context_destroy(server->context);
-        server->context = NULL;
-        server->context = lws_context_new (server->use_ssl);
-        if (!server->context)
-            break;
-        i->context = server->context;
     }
 
     seaf_message ("Notification worker for server %s exiting.\n", server->server_url);
