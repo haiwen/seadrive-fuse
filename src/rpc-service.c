@@ -508,6 +508,12 @@ seafile_get_account_by_repo_id (const char *repo_id, GError **error)
     return seaf_repo_manager_get_account_by_repo_id (seaf->repo_mgr, repo_id);
 }
 
+static char *
+seafile_ping (GError **error)
+{
+    return g_strdup ("pong");
+}
+
 #if 0
 
 static GObject *
@@ -816,6 +822,11 @@ register_rpc_service ()
                                      seafile_get_account_by_repo_id,
                                      "seafile_get_account_by_repo_id",
                                      searpc_signature_json__string());
+
+    searpc_server_register_function ("seadrive-rpcserver",
+                                     seafile_ping,
+                                     "seafile_ping",
+                                     searpc_signature_string__void());
 
 #if 0
     searpc_server_register_function ("seadrive-rpcserver",
