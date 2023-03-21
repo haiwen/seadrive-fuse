@@ -1036,7 +1036,7 @@ static void update_current_repos(HttpAPIGetResult *result, void *user_data)
         if (result->http_status == HTTP_SERVERR_BAD_GATEWAY ||
             result->http_status == HTTP_SERVERR_UNAVAILABLE ||
             result->http_status == HTTP_SERVERR_TIMEOUT) {
-            seaf_repo_manager_set_account_server_disconnected (seaf->repo_mgr, account->server, account->username, TRUE);
+            seaf_repo_manager_set_account_server_disconnected (seaf->repo_mgr, TRUE);
         }
         record_sync_error (seaf->sync_mgr, NULL, NULL, NULL,
                            transfer_error_to_error_id (result->error_code));
@@ -1051,6 +1051,7 @@ static void update_current_repos(HttpAPIGetResult *result, void *user_data)
         }
         remove_sync_error (seaf->sync_mgr, NULL, NULL);
         g_atomic_int_set (&seaf->sync_mgr->priv->server_disconnected, 0);
+        seaf_repo_manager_set_account_server_disconnected (seaf->repo_mgr, FALSE);
     }
 
     /* If the get repo list request was sent around account switching,
@@ -2317,28 +2318,6 @@ check_head_commit_http (SyncTask *task)
     return ret;
 }
 
-static gboolean
-server_is_pro (const char *server_url) {
-    GList *accounts = NULL, *ptr;
-    SeafAccount *account;
-    gboolean is_pro = FALSE;
-    accounts = seaf_repo_manager_get_account_list (seaf->repo_mgr);
-    if (!accounts)
-        return FALSE;
-
-    for (ptr = accounts; ptr; ptr = ptr->next) {
-        account = ptr->data;
-        if (g_strcmp0 (account->fileserver_addr, server_url) == 0) {
-            is_pro = account->is_pro;
-            break;
-        }
-    }
-
-    g_list_free_full (accounts, (GDestroyNotify)seaf_account_free);
-
-    return is_pro;
-}
-
 void
 seaf_sync_manager_check_locks_and_folder_perms (SeafSyncManager *manager, const char *server_url)
 {
@@ -2349,7 +2328,7 @@ seaf_sync_manager_check_locks_and_folder_perms (SeafSyncManager *manager, const 
         return;
     }
 
-    if (server_is_pro (server_url)) {
+    if (seaf_repo_manager_current_account_is_pro (seaf->repo_mgr)) {
         state->immediate_check_folder_perms = TRUE;
         state->immediate_check_locked_files = TRUE;
     }
@@ -2950,10 +2929,11 @@ on_repo_http_uploaded (SeafileSession *seaf,
             /*                                   SYNC_ERROR_ID_QUOTA_FULL); */
             /*     task->repo->quota_full_notified = 1; */
             /* } */
-        } else
+        } else {
             if (tx_task->error == HTTP_TASK_ERR_BAD_LOCAL_DATA)
                 print_upload_corrupt_debug_info (task->repo);
             seaf_sync_manager_set_task_error (task, SYNC_ERROR_UPLOAD);
+        }
     }
 }
 

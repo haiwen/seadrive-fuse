@@ -535,13 +535,20 @@ handle_file_lock (json_t *content)
             ret = -1;
             goto out;
         }
+        SeafAccount *account = seaf_repo_manager_get_current_account (seaf->repo_mgr);
+        if (!account) {
+            seaf_warning ("Failed to get current account.\n");
+            ret = -1;
+            goto out;
+        }
         lock_user = json_string_value (member);
 
         FileLockType type = LOCKED_OTHERS;
-        if (g_strcmp0 (lock_user, repo->user) == 0)
+        if (g_strcmp0 (lock_user, account->username) == 0)
             type = LOCKED_MANUAL;
 
         seaf_filelock_manager_lock_file (seaf->filelock_mgr, repo_id, path, type);
+        seaf_account_free (account);
     } else if (g_strcmp0 (change_event, "unlocked") == 0) {
         seaf_filelock_manager_mark_file_unlocked (seaf->filelock_mgr, repo_id, path);
     }
@@ -659,6 +666,14 @@ handle_jwt_expired (json_t *content)
     const char *repo_id;
     SeafRepo *repo = NULL;
     int ret = 0;
+    SeafAccount *account = NULL;
+
+    account = seaf_repo_manager_get_current_account (seaf->repo_mgr);
+    if (!account) {
+        seaf_warning ("Failed to get current account.\n");
+        ret = -1;
+        goto out;
+    }
 
     member = json_object_get (content, "repo_id");
     if (!member) {
@@ -678,7 +693,7 @@ handle_jwt_expired (json_t *content)
         goto out;
     }
 
-    server = get_notif_server (seaf->notif_mgr, repo->fileserver_addr);
+    server = get_notif_server (seaf->notif_mgr, account->fileserver_addr);
     if (!server || server->status != STATUS_CONNECTED) {
         ret = -1;
         goto out;
@@ -691,6 +706,7 @@ handle_jwt_expired (json_t *content)
     // Set last_check_jwt_token to 0 to allow the repo to re-acquire a jwt token.
     repo->last_check_jwt_token = 0;
 out:
+    seaf_account_free (account);
     notif_server_unref (server);
     seaf_repo_unref (repo);
 
@@ -873,8 +889,14 @@ seaf_notif_manager_subscribe_repo (SeafNotifManager *mgr, SeafRepo *repo)
     char *str = NULL;
     char *sub_id = NULL;
     json_t *array, *obj;
+    SeafAccount *account = NULL;
+    
+    account = seaf_repo_manager_get_current_account (seaf->repo_mgr);
+    if (!account) {
+        goto out;
+    }
 
-    server = get_notif_server (mgr, repo->fileserver_addr);
+    server = get_notif_server (mgr, account->fileserver_addr);
     if (!server || server->status != STATUS_CONNECTED)
         goto out;
 
@@ -913,6 +935,7 @@ seaf_notif_manager_subscribe_repo (SeafNotifManager *mgr, SeafRepo *repo)
     seaf_debug ("Successfully subscribe repo %s\n", repo->id);
 
 out:
+    seaf_account_free (account);
     g_free (str);
     json_decref (json_msg);
     notif_server_unref (server);
@@ -926,8 +949,14 @@ seaf_notif_manager_unsubscribe_repo (SeafNotifManager *mgr, SeafRepo *repo)
     json_t *content = NULL;
     char *str = NULL;
     json_t *array, *obj;
+    SeafAccount *account = NULL;
 
-    server = get_notif_server (mgr, repo->fileserver_addr);
+    account = seaf_repo_manager_get_current_account (seaf->repo_mgr);
+    if (!account) {
+        goto out;
+    }
+
+    server = get_notif_server (mgr, account->fileserver_addr);
     if (!server || server->status != STATUS_CONNECTED) {
         goto out;
     }
@@ -964,6 +993,7 @@ seaf_notif_manager_unsubscribe_repo (SeafNotifManager *mgr, SeafRepo *repo)
     seaf_debug ("Successfully unsubscribe repo %s\n", repo->id);
 
 out:
+    seaf_account_free (account);
     g_free (str);
     json_decref (json_msg);
     notif_server_unref (server);
@@ -974,8 +1004,14 @@ seaf_notif_manager_is_repo_subscribed (SeafNotifManager *mgr, SeafRepo *repo)
 {
     NotifServer *server = NULL;
     gboolean subscribed = FALSE;
+    SeafAccount *account = NULL;
 
-    server = get_notif_server (mgr, repo->fileserver_addr);
+    account = seaf_repo_manager_get_current_account (seaf->repo_mgr);
+    if (!account) {
+        goto out;
+    }
+
+    server = get_notif_server (mgr, account->fileserver_addr);
     if (!server || server->status != STATUS_CONNECTED) {
         goto out;
     }
@@ -989,6 +1025,7 @@ seaf_notif_manager_is_repo_subscribed (SeafNotifManager *mgr, SeafRepo *repo)
     pthread_mutex_unlock (&server->sub_lock);
 
 out:
+    seaf_account_free (account);
     notif_server_unref (server);
     return subscribed;
 }
