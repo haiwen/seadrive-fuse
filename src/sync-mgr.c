@@ -423,6 +423,68 @@ seaf_sync_manager_set_last_sync_time (SeafSyncManager *mgr,
     info->last_sync_time = last_sync_time;
 }
 
+static inline gboolean
+has_trailing_space_or_period (const char *path)
+{
+    int len = strlen(path);
+    if (path[len - 1] == ' ' || path[len - 1] == '.') {
+        return TRUE;
+    }
+
+    return FALSE;
+}
+
+static gboolean
+seaf_sync_manager_ignored_on_checkout_on_windows (const char *file_path, IgnoreReason *ignore_reason)
+{
+    gboolean ret = FALSE;
+
+    static char illegals[] = {'\\', ':', '*', '?', '"', '<', '>', '|', '\b', '\t'};
+    char **components = g_strsplit (file_path, "/", -1);
+    int n_comps = g_strv_length (components);
+    int j = 0;
+    char *file_name;
+    int i;
+    char c;
+
+    for (; j < n_comps; ++j) {
+        file_name = components[j];
+
+        if (has_trailing_space_or_period (file_name)) {
+            /* Ignore files/dir whose path has trailing spaces. It would cause
+             * problem on windows. */
+            /* g_debug ("ignore '%s' which contains trailing space in path\n", path); */
+            ret = TRUE;
+            if (ignore_reason)
+                *ignore_reason = IGNORE_REASON_END_SPACE_PERIOD;
+            goto out;
+        }
+
+        for (i = 0; i < G_N_ELEMENTS(illegals); i++) {
+            if (strchr (file_name, illegals[i])) {
+                ret = TRUE;
+                if (ignore_reason)
+                    *ignore_reason = IGNORE_REASON_INVALID_CHARACTER;
+                goto out;
+            }
+        }
+
+        for (c = 1; c <= 31; c++) {
+            if (strchr (file_name, c)) {
+                ret = TRUE;
+                if (ignore_reason)
+                    *ignore_reason = IGNORE_REASON_INVALID_CHARACTER;
+                goto out;
+            }
+        }
+    }
+
+out:
+    g_strfreev (components);
+
+    return ret;
+}
+
 static HttpServerState *
 get_http_server_state (SeafSyncManagerPriv *priv, const char *fileserver_addr)
 {
@@ -3534,6 +3596,12 @@ apply_journal_ops_to_changeset (SeafRepo *repo, ChangeSet *changeset,
             if (seaf_repo_manager_ignored_on_commit (filename))
                 break;
 
+            if (!seaf->hide_windows_incompatible_path_notification &&
+                seaf_sync_manager_ignored_on_checkout_on_windows (filename, NULL)) {
+                record_sync_error (seaf->sync_mgr, repo->id, repo->name, op->path,
+                                   SYNC_ERROR_ID_INVALID_PATH_ON_WINDOWS);
+            }
+
             st.st_size = op->size;
             st.st_mtime = op->mtime;
             st.st_mode = op->mode;
@@ -3593,6 +3661,12 @@ apply_journal_ops_to_changeset (SeafRepo *repo, ChangeSet *changeset,
         case OP_TYPE_MKDIR:
             if (seaf_repo_manager_ignored_on_commit (filename))
                 break;
+
+            if (!seaf->hide_windows_incompatible_path_notification &&
+                seaf_sync_manager_ignored_on_checkout_on_windows (filename, NULL)) {
+                record_sync_error (seaf->sync_mgr, repo->id, repo->name, op->path,
+                                   SYNC_ERROR_ID_INVALID_PATH_ON_WINDOWS);
+            }
 
             st.st_size = op->size;
             st.st_mtime = op->mtime;

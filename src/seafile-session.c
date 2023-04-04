@@ -366,6 +366,9 @@ seafile_session_prepare (SeafileSession *session)
         session->delete_confirm_threshold = MAX_DELETED_FILES_NUM;
     }
 
+    session->hide_windows_incompatible_path_notification =
+    seafile_session_config_get_bool (session, KEY_HIDE_WINDOWS_INCOMPATIBLE_PATH_NOTIFICATION);
+
     seaf_commit_manager_init (session->commit_mgr);
     seaf_fs_manager_init (session->fs_mgr);
     seaf_branch_manager_init (session->branch_mgr);

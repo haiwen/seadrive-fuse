@@ -176,6 +176,13 @@ seafile_session_config_set_string (SeafileSession *session,
             session->enable_auto_lock = FALSE;
     }
 
+    if (g_strcmp0(key, KEY_HIDE_WINDOWS_INCOMPATIBLE_PATH_NOTIFICATION) == 0) {
+        if (g_strcmp0(value, "true") == 0)
+            session->hide_windows_incompatible_path_notification = TRUE;
+        else
+            session->hide_windows_incompatible_path_notification = FALSE;
+    }
+
     return 0;
 }
 

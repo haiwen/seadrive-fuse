@@ -38,6 +38,8 @@
 
 #define DELETE_CONFIRM_THRESHOLD "delete_confirm_threshold"
 
+#define KEY_HIDE_WINDOWS_INCOMPATIBLE_PATH_NOTIFICATION "hide_windows_incompatible_path_notification"
+
 gboolean
 seafile_session_config_exists (SeafileSession *session, const char *key);
 

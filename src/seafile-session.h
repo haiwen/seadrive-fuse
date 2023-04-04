@@ -85,6 +85,8 @@ struct _SeafileSession {
     char                *http_proxy_username;
     char                *http_proxy_password;
 
+    gboolean            hide_windows_incompatible_path_notification;
+
     gboolean             enable_auto_lock;
     GRegex              *office_lock_file_regex;
 
