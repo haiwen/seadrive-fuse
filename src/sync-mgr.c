@@ -196,6 +196,150 @@ struct _CacheFileTask {
 };
 typedef struct _CacheFileTask CacheFileTask;
 
+typedef struct SyncErrorInfo {
+    int error_id;
+    int error_level;
+} SyncErrorInfo;
+
+static SyncErrorInfo sync_error_info_tbl[] = {
+    {
+        SYNC_ERROR_ID_FILE_LOCKED_BY_APP,
+        SYNC_ERROR_LEVEL_FILE,
+    },
+    {
+        SYNC_ERROR_ID_FOLDER_LOCKED_BY_APP,
+        SYNC_ERROR_LEVEL_FILE,
+    },
+    {
+        SYNC_ERROR_ID_FILE_LOCKED,
+        SYNC_ERROR_LEVEL_FILE,
+    },
+    {
+        SYNC_ERROR_ID_INVALID_PATH,
+        SYNC_ERROR_LEVEL_FILE,
+    },
+    {
+        SYNC_ERROR_ID_INDEX_ERROR,
+        SYNC_ERROR_LEVEL_FILE,
+    },
+    {
+        SYNC_ERROR_ID_PATH_END_SPACE_PERIOD,
+        SYNC_ERROR_LEVEL_FILE,
+    },
+    {
+        SYNC_ERROR_ID_PATH_INVALID_CHARACTER,
+        SYNC_ERROR_LEVEL_FILE,
+    },
+    {
+        SYNC_ERROR_ID_FOLDER_PERM_DENIED,
+        SYNC_ERROR_LEVEL_FILE,
+    },
+    {
+        SYNC_ERROR_ID_PERM_NOT_SYNCABLE,
+        SYNC_ERROR_LEVEL_FILE,
+    },
+    {
+        SYNC_ERROR_ID_UPDATE_TO_READ_ONLY_REPO,
+        SYNC_ERROR_LEVEL_FILE,
+    },
+    {
+        SYNC_ERROR_ID_CONFLICT,
+        SYNC_ERROR_LEVEL_FILE,
+    },
+    {
+        SYNC_ERROR_ID_INVALID_PATH_ON_WINDOWS,
+        SYNC_ERROR_LEVEL_FILE,
+    },
+    {
+        SYNC_ERROR_ID_MOVE_NOT_IN_REPO,
+        SYNC_ERROR_LEVEL_FILE,
+    },
+    {
+        SYNC_ERROR_ID_UPDATE_NOT_IN_REPO,
+        SYNC_ERROR_LEVEL_FILE,
+    },
+    {
+        SYNC_ERROR_ID_ACCESS_DENIED,
+        SYNC_ERROR_LEVEL_REPO,
+    },
+    {
+        SYNC_ERROR_ID_NO_WRITE_PERMISSION,
+        SYNC_ERROR_LEVEL_REPO,
+    },
+    {
+        SYNC_ERROR_ID_QUOTA_FULL,
+        SYNC_ERROR_LEVEL_REPO,
+    },
+    {
+        SYNC_ERROR_ID_NETWORK,
+        SYNC_ERROR_LEVEL_NETWORK,
+    },
+    {
+        SYNC_ERROR_ID_RESOLVE_PROXY,
+        SYNC_ERROR_LEVEL_NETWORK,
+    },
+    {
+        SYNC_ERROR_ID_RESOLVE_HOST,
+        SYNC_ERROR_LEVEL_NETWORK,
+    },
+    {
+        SYNC_ERROR_ID_CONNECT,
+        SYNC_ERROR_LEVEL_NETWORK,
+    },
+    {
+        SYNC_ERROR_ID_SSL,
+        SYNC_ERROR_LEVEL_NETWORK,
+    },
+    {
+        SYNC_ERROR_ID_TX,
+        SYNC_ERROR_LEVEL_NETWORK,
+    },
+    {
+        SYNC_ERROR_ID_TX_TIMEOUT,
+        SYNC_ERROR_LEVEL_NETWORK,
+    },
+    {
+        SYNC_ERROR_ID_UNHANDLED_REDIRECT,
+        SYNC_ERROR_LEVEL_NETWORK,
+    },
+    {
+        SYNC_ERROR_ID_SERVER,
+        SYNC_ERROR_LEVEL_REPO,
+    },
+    {
+        SYNC_ERROR_ID_LOCAL_DATA_CORRUPT,
+        SYNC_ERROR_LEVEL_REPO,
+    },
+    {
+        SYNC_ERROR_ID_WRITE_LOCAL_DATA,
+        SYNC_ERROR_LEVEL_REPO,
+    },
+    {
+        SYNC_ERROR_ID_GENERAL_ERROR,
+        SYNC_ERROR_LEVEL_REPO,
+    },
+    {
+        SYNC_ERROR_ID_LIBRARY_TOO_LARGE,
+        SYNC_ERROR_LEVEL_REPO,
+    },
+    {
+        SYNC_ERROR_ID_DEL_CONFIRMATION_PENDING,
+        SYNC_ERROR_LEVEL_REPO,
+    },
+    {
+        SYNC_ERROR_ID_NO_ERROR,
+        SYNC_ERROR_LEVEL_REPO,
+    },
+};
+
+int
+sync_error_level (int error)
+{
+    g_return_val_if_fail ((error >= 0 && error < SYNC_ERROR_ID_NO_ERROR), -1);
+
+    return sync_error_info_tbl[error].error_level;
+}
+
 static const char *ignore_table[] = {
     /* tmp files under Linux */
     "*~",
@@ -451,11 +595,17 @@ remove_sync_error (SeafSyncManager *mgr, const char *repo_id, const char *path)
 {
     GList *ptr;
     SyncError *err;
+    int err_level = -1;
 
     pthread_mutex_lock (&mgr->priv->errors_lock);
 
     for (ptr = mgr->priv->sync_errors; ptr; ptr = ptr->next) {
         err = ptr->data;
+        err_level = sync_error_level (err->err_id);
+        // Even though the repo was successfully synced, a file-level sync error was displayed.
+        if (err_level == SYNC_ERROR_LEVEL_FILE) {
+            continue;
+        }
         if (g_strcmp0 (err->repo_id, repo_id) == 0 &&
             g_strcmp0 (err->path, path) == 0) {
             mgr->priv->sync_errors = g_list_delete_link (mgr->priv->sync_errors, ptr);
