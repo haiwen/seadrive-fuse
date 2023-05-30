@@ -205,131 +205,131 @@ static SyncErrorInfo sync_error_info_tbl[] = {
     {
         SYNC_ERROR_ID_FILE_LOCKED_BY_APP,
         SYNC_ERROR_LEVEL_FILE,
-    },
+    }, // 0
     {
         SYNC_ERROR_ID_FOLDER_LOCKED_BY_APP,
         SYNC_ERROR_LEVEL_FILE,
-    },
+    }, // 1
     {
         SYNC_ERROR_ID_FILE_LOCKED,
         SYNC_ERROR_LEVEL_FILE,
-    },
+    }, // 2
     {
         SYNC_ERROR_ID_INVALID_PATH,
         SYNC_ERROR_LEVEL_FILE,
-    },
+    }, // 3
     {
         SYNC_ERROR_ID_INDEX_ERROR,
         SYNC_ERROR_LEVEL_FILE,
-    },
-    {
-        SYNC_ERROR_ID_PATH_END_SPACE_PERIOD,
-        SYNC_ERROR_LEVEL_FILE,
-    },
-    {
-        SYNC_ERROR_ID_PATH_INVALID_CHARACTER,
-        SYNC_ERROR_LEVEL_FILE,
-    },
-    {
-        SYNC_ERROR_ID_FOLDER_PERM_DENIED,
-        SYNC_ERROR_LEVEL_FILE,
-    },
-    {
-        SYNC_ERROR_ID_PERM_NOT_SYNCABLE,
-        SYNC_ERROR_LEVEL_FILE,
-    },
-    {
-        SYNC_ERROR_ID_UPDATE_TO_READ_ONLY_REPO,
-        SYNC_ERROR_LEVEL_FILE,
-    },
-    {
-        SYNC_ERROR_ID_CONFLICT,
-        SYNC_ERROR_LEVEL_FILE,
-    },
-    {
-        SYNC_ERROR_ID_INVALID_PATH_ON_WINDOWS,
-        SYNC_ERROR_LEVEL_FILE,
-    },
-    {
-        SYNC_ERROR_ID_MOVE_NOT_IN_REPO,
-        SYNC_ERROR_LEVEL_FILE,
-    },
-    {
-        SYNC_ERROR_ID_UPDATE_NOT_IN_REPO,
-        SYNC_ERROR_LEVEL_FILE,
-    },
+    }, // 4
     {
         SYNC_ERROR_ID_ACCESS_DENIED,
         SYNC_ERROR_LEVEL_REPO,
-    },
-    {
-        SYNC_ERROR_ID_NO_WRITE_PERMISSION,
-        SYNC_ERROR_LEVEL_REPO,
-    },
+    }, // 5
     {
         SYNC_ERROR_ID_QUOTA_FULL,
         SYNC_ERROR_LEVEL_REPO,
-    },
+    }, // 6
     {
         SYNC_ERROR_ID_NETWORK,
         SYNC_ERROR_LEVEL_NETWORK,
-    },
+    }, // 7
     {
         SYNC_ERROR_ID_RESOLVE_PROXY,
         SYNC_ERROR_LEVEL_NETWORK,
-    },
+    }, // 8
     {
         SYNC_ERROR_ID_RESOLVE_HOST,
         SYNC_ERROR_LEVEL_NETWORK,
-    },
+    }, // 9
     {
         SYNC_ERROR_ID_CONNECT,
         SYNC_ERROR_LEVEL_NETWORK,
-    },
+    }, // 10
     {
         SYNC_ERROR_ID_SSL,
         SYNC_ERROR_LEVEL_NETWORK,
-    },
+    }, // 11
     {
         SYNC_ERROR_ID_TX,
         SYNC_ERROR_LEVEL_NETWORK,
-    },
+    }, // 12
     {
         SYNC_ERROR_ID_TX_TIMEOUT,
         SYNC_ERROR_LEVEL_NETWORK,
-    },
+    }, // 13
     {
         SYNC_ERROR_ID_UNHANDLED_REDIRECT,
         SYNC_ERROR_LEVEL_NETWORK,
-    },
+    }, // 14
     {
         SYNC_ERROR_ID_SERVER,
         SYNC_ERROR_LEVEL_REPO,
-    },
+    }, // 15
     {
         SYNC_ERROR_ID_LOCAL_DATA_CORRUPT,
         SYNC_ERROR_LEVEL_REPO,
-    },
+    }, // 16
     {
         SYNC_ERROR_ID_WRITE_LOCAL_DATA,
         SYNC_ERROR_LEVEL_REPO,
-    },
+    }, // 17
     {
-        SYNC_ERROR_ID_GENERAL_ERROR,
+        SYNC_ERROR_ID_PERM_NOT_SYNCABLE,
+        SYNC_ERROR_LEVEL_FILE,
+    }, // 18
+    {
+        SYNC_ERROR_ID_NO_WRITE_PERMISSION,
         SYNC_ERROR_LEVEL_REPO,
-    },
+    }, // 19
+    {
+        SYNC_ERROR_ID_FOLDER_PERM_DENIED,
+        SYNC_ERROR_LEVEL_FILE,
+    }, // 20
+    {
+        SYNC_ERROR_ID_PATH_END_SPACE_PERIOD,
+        SYNC_ERROR_LEVEL_FILE,
+    }, // 21
+    {
+        SYNC_ERROR_ID_PATH_INVALID_CHARACTER,
+        SYNC_ERROR_LEVEL_FILE,
+    }, // 22
+    {
+        SYNC_ERROR_ID_UPDATE_TO_READ_ONLY_REPO,
+        SYNC_ERROR_LEVEL_FILE,
+    }, // 23
+    {
+        SYNC_ERROR_ID_CONFLICT,
+        SYNC_ERROR_LEVEL_FILE,
+    }, // 24
+    {
+        SYNC_ERROR_ID_UPDATE_NOT_IN_REPO,
+        SYNC_ERROR_LEVEL_FILE,
+    }, // 25
     {
         SYNC_ERROR_ID_LIBRARY_TOO_LARGE,
         SYNC_ERROR_LEVEL_REPO,
-    },
+    }, // 26
+    {
+        SYNC_ERROR_ID_MOVE_NOT_IN_REPO,
+        SYNC_ERROR_LEVEL_FILE,
+    }, // 27
     {
         SYNC_ERROR_ID_DEL_CONFIRMATION_PENDING,
         SYNC_ERROR_LEVEL_REPO,
-    },
+    }, // 28
+    {
+        SYNC_ERROR_ID_INVALID_PATH_ON_WINDOWS,
+        SYNC_ERROR_LEVEL_FILE,
+    }, // 29
+    {
+        SYNC_ERROR_ID_GENERAL_ERROR,
+        SYNC_ERROR_LEVEL_REPO,
+    }, // 30
     {
         SYNC_ERROR_ID_NO_ERROR,
         SYNC_ERROR_LEVEL_REPO,
-    },
+    }, // 31
 };
 
 int
