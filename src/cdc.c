@@ -99,7 +99,7 @@ do {                                                         \
     memcpy (file_descr->blk_sha1s +                          \
             file_descr->block_nr * CHECKSUM_LENGTH,          \
             chunk_descr.checksum, CHECKSUM_LENGTH);          \
-    SHA1_Update (&file_ctx, chunk_descr.checksum, 20);       \
+    EVP_DigestUpdate (file_ctx, chunk_descr.checksum, 20);   \
     file_descr->block_nr++;                                  \
     offset += _block_sz;                                     \
                                                              \
@@ -116,9 +116,9 @@ int file_chunk_cdc(int fd_src,
 {
     char *buf;
     uint32_t buf_sz;
-    SHA_CTX file_ctx;
+    unsigned int len;
+    EVP_MD_CTX *file_ctx;
     CDCDescriptor chunk_descr;
-    SHA1_Init (&file_ctx);
 
     SeafStat sb;
     if (seaf_fstat (fd_src, &sb) < 0) {
@@ -141,6 +141,9 @@ int file_chunk_cdc(int fd_src,
     if (!buf)
         return -1;
 
+    file_ctx = EVP_MD_CTX_new();
+    EVP_DigestInit_ex(file_ctx, EVP_sha1(), NULL);
+
     /* buf: a fix-sized buffer.
      * cur: data behind (inclusive) this offset has been scanned.
      *      cur + 1 is the bytes that has been scanned.
@@ -156,6 +159,7 @@ int file_chunk_cdc(int fd_src,
         ret = readn (fd_src, buf + tail, rsize);
         if (ret < 0) {
             seaf_warning ("CDC: failed to read: %s.\n", strerror(errno));
+            EVP_MD_CTX_free(file_ctx);
             free (buf);
             return -1;
         }
@@ -164,6 +168,7 @@ int file_chunk_cdc(int fd_src,
 
         if (file_descr->file_size > expected_size) {
             seaf_warning ("File size changed while chunking.\n");
+            EVP_MD_CTX_free(file_ctx);
             free (buf);
             return -1;
         }
@@ -177,6 +182,7 @@ int file_chunk_cdc(int fd_src,
             if (tail > 0) {
                 if (file_descr->block_nr == file_descr->max_block_nr) {
                     seaf_warning ("Block id array is not large enough, bail out.\n");
+                    EVP_MD_CTX_free(file_ctx);
                     free (buf);
                     return -1;
                 }
@@ -203,6 +209,7 @@ int file_chunk_cdc(int fd_src,
             {
                 if (file_descr->block_nr == file_descr->max_block_nr) {
                     seaf_warning ("Block id array is not large enough, bail out.\n");
+                    EVP_MD_CTX_free(file_ctx);
                     free (buf);
                     return -1;
                 }
@@ -215,8 +222,9 @@ int file_chunk_cdc(int fd_src,
         }
     }
 
-    SHA1_Final (file_descr->file_sum, &file_ctx);
+    EVP_DigestFinal_ex (file_ctx, file_descr->file_sum, &len);
 
+    EVP_MD_CTX_free(file_ctx);
     free (buf);
 
     return 0;

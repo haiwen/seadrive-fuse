@@ -11,7 +11,7 @@
 #define get_checksum md5
 #define CHECKSUM_LENGTH 16
 #else
-#include <openssl/sha.h>
+#include <openssl/evp.h>
 #define get_checksum sha1
 #define CHECKSUM_LENGTH 20
 #endif

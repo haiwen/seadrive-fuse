@@ -23,7 +23,6 @@
 #include <stdarg.h>
 
 #include <string.h>
-#include <openssl/sha.h>
 #include <openssl/hmac.h>
 #include <openssl/evp.h>
 #include <openssl/bio.h>
@@ -476,14 +475,18 @@ ccnet_expand_path (const char *src)
 int
 calculate_sha1 (unsigned char *sha1, const char *msg, int len)
 {
-    SHA_CTX c;
+    EVP_MD_CTX *c;
+    unsigned int l;
 
     if (len < 0)
         len = strlen(msg);
 
-    SHA1_Init(&c);
-    SHA1_Update(&c, msg, len);
-	SHA1_Final(sha1, &c);
+    c = EVP_MD_CTX_new();
+    EVP_DigestInit_ex(c, EVP_sha1(), NULL);
+    EVP_DigestUpdate (c, msg, len);
+    EVP_DigestFinal_ex (c, sha1, &l);
+    EVP_MD_CTX_free(c);
+
     return 0;
 }
 
