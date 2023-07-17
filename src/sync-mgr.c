@@ -1277,11 +1277,13 @@ check_folder_permissions_immediately  (SeafSyncManager *mgr,
         if (!repo)
             continue;
 
+#ifdef COMPILE_WS
         // Don't need to check folder perms regularly when we get folder perms from notification server.
         if (!force && seaf_notif_manager_is_repo_subscribed (seaf->notif_mgr, repo)) {
             seaf_repo_unref (repo);
             continue;
         }
+#endif
 
         if (!repo->token) {
             seaf_repo_unref (repo);
@@ -1408,11 +1410,13 @@ check_locked_files_immediately (SeafSyncManager *mgr, HttpServerState *server_st
         if (!repo)
             continue;
 
+#ifdef COMPILE_WS
         // Don't need to check locked files regularly when we get locked files from notification server.
         if (!force && seaf_notif_manager_is_repo_subscribed (seaf->notif_mgr, repo)) {
             seaf_repo_unref (repo);
             continue;
         }
+#endif
 
         if (!repo->token) {
             seaf_repo_unref (repo);
@@ -1631,6 +1635,7 @@ http_notification_url (const char *url)
     return ret;
 }
 
+#ifdef COMPILE_WS
 // Returns TRUE if notification server is alive; otherwise FALSE.
 // We only check notification server once.
 static gboolean
@@ -1675,6 +1680,7 @@ check_notif_server (SeafSyncManager *mgr, const char *server_url)
     g_free (notif_url);
     return FALSE;
 }
+#endif
 
 gint
 cmp_sync_info_by_sync_time (gconstpointer a, gconstpointer b, gpointer user_data)
@@ -1777,6 +1783,7 @@ out:
     return;
 }
 
+#ifdef COMPILE_WS
 static int
 check_and_subscribe_repo (HttpServerState *state, SeafRepo *repo)
 {
@@ -1822,6 +1829,7 @@ check_and_subscribe_repo (HttpServerState *state, SeafRepo *repo)
 
     return 0;
 }
+#endif
 
 static void
 clone_repo (SeafSyncManager *manager,
@@ -1865,10 +1873,12 @@ auto_sync_pulse (void *vmanager)
         return TRUE;
     }
 
+#ifdef COMPILE_WS
     if (check_notif_server (manager, account->fileserver_addr)) {
         seaf_notif_manager_connect_server (seaf->notif_mgr, account->fileserver_addr,
                                            state->use_fileserver_port);
     }
+#endif
 
     if (account->is_pro) {
         check_folder_permissions (manager, state);
@@ -1984,7 +1994,9 @@ auto_sync_pulse (void *vmanager)
 
         sync_repo (manager, state, sync_info, repo);
 
+#ifdef COMPILE_WS
         check_and_subscribe_repo (state, repo);
+#endif
 
         seaf_repo_unref (repo);
     }

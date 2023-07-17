@@ -1775,7 +1775,9 @@ seaf_repo_manager_mark_repo_deleted (SeafRepoManager *mgr,
     repo->delete_pending = TRUE;
     repo->remove_cache = remove_cache;
 
+#ifdef COMPILE_WS
     seaf_notif_manager_unsubscribe_repo (seaf->notif_mgr, repo);
+#endif
 
     return 0;
 }

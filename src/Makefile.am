@@ -54,6 +54,10 @@ noinst_HEADERS = \
 	searpc-signature.h \
 	searpc-marshal.h
 
+if COMPILE_WS
+ws_src = notif-mgr.c
+endif
+
 seadrive_SOURCES = \
 	seadrive.c \
 	http-tx-mgr.c \
@@ -88,7 +92,7 @@ seadrive_SOURCES = \
 	file-cache-mgr.c \
 	sync-status-tree.c \
 	mq-mgr.c \
-	notif-mgr.c
+	$(ws_src)
 
 if WIN32
 seadrive_LDADD = @LIB_INTL@ @GLIB2_LIBS@ @GOBJECT_LIBS@ \

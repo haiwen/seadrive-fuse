@@ -157,7 +157,7 @@ JANSSON_REQUIRED=2.2.1
 CURL_REQUIRED=7.17
 FUSE_REQUIRED=2.7.3
 ZLIB_REQUIRED=1.2.0
-WS_REQUIRED=4.3.0
+WS_REQUIRED=4.0.20
 
 PKG_CHECK_MODULES(SSL, [openssl])
 AC_SUBST(SSL_CFLAGS)
@@ -197,9 +197,14 @@ PKG_CHECK_MODULES(CURL, [libcurl >= $CURL_REQUIRED])
 AC_SUBST(CURL_CFLAGS)
 AC_SUBST(CURL_LIBS)
 
-PKG_CHECK_MODULES(WS, [libwebsockets >= $WS_REQUIRED])
-AC_SUBST(WS_CFLAGS)
-AC_SUBST(WS_LIBS)
+AC_ARG_ENABLE(ws, AC_HELP_STRING([--enable-ws], [enable build websockets]),
+  [compile_ws=$enableval],[compile_ws="no"])
+AM_CONDITIONAL([COMPILE_WS], [test "${compile_ws}" = "yes"])
+if test "${compile_ws}" = "yes"; then
+   PKG_CHECK_MODULES(WS, [libwebsockets >= $WS_REQUIRED])
+   AC_SUBST(WS_CFLAGS)
+   AC_SUBST(WS_LIBS)
+fi
 
 BPWRAPPER_REQUIRED=0.1
 AC_ARG_ENABLE(breakpad, AC_HELP_STRING([--enable-breakpad], [build google breadpad support]),
