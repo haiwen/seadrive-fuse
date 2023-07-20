@@ -211,4 +211,12 @@ seaf_sync_manager_ignored_on_checkout (const char *file_path, IgnoreReason *igno
 gboolean
 seaf_repo_manager_ignored_on_commit (const char *filename);
 
+void
+seaf_sync_manager_check_locks_and_folder_perms (SeafSyncManager *manager, const char *server_url);
+
+void
+seaf_sync_manager_set_last_sync_time (SeafSyncManager *mgr,
+                                      const char *repo_id,
+                                      gint64 last_sync_time);
+
 #endif

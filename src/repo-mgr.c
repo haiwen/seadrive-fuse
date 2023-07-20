@@ -290,6 +290,218 @@ comp_folder_perms (gconstpointer a, gconstpointer b)
     return (strcmp (perm_b->path, perm_a->path));
 }
 
+static void
+delete_folder_perm (SeafRepoManager *mgr, const char *repo_id, FolderPermType type, FolderPerm *perm)
+{
+    GList *folder_perms = NULL;
+    if (type == FOLDER_PERM_TYPE_USER) {
+        folder_perms = g_hash_table_lookup (mgr->priv->user_perms, repo_id);
+        if (!folder_perms)
+            return;
+
+        if (g_strcmp0 (perm->path, "") == 0) {
+            g_list_free_full (folder_perms, (GDestroyNotify)folder_perm_free);
+            g_hash_table_remove (mgr->priv->user_perms, repo_id);
+            return;
+        }
+
+        GList *existing = g_list_find_custom (folder_perms,
+                                              perm,
+                                              comp_folder_perms);
+        if (existing) {
+            FolderPerm *old_perm = existing->data;
+            folder_perms = g_list_remove (folder_perms, old_perm);
+            folder_perm_free (old_perm);
+            g_hash_table_insert (mgr->priv->user_perms, g_strdup(repo_id), folder_perms);
+        }
+    } else if (type == FOLDER_PERM_TYPE_GROUP) {
+        folder_perms = g_hash_table_lookup (mgr->priv->group_perms, repo_id);
+        if (!folder_perms)
+            return;
+
+        if (g_strcmp0 (perm->path, "") == 0) {
+            g_list_free_full (folder_perms, (GDestroyNotify)folder_perm_free);
+            g_hash_table_remove (mgr->priv->group_perms, repo_id);
+            return;
+        }
+
+        GList *existing = g_list_find_custom (folder_perms,
+                                              perm,
+                                              comp_folder_perms);
+        if (existing) {
+            FolderPerm *old_perm = existing->data;
+            folder_perms = g_list_remove (folder_perms, old_perm);
+            folder_perm_free (old_perm);
+            g_hash_table_insert (mgr->priv->group_perms, g_strdup(repo_id), folder_perms);
+        }
+    }
+}
+
+int
+seaf_repo_manager_delete_folder_perm (SeafRepoManager *mgr,
+                                      const char *repo_id,
+                                      FolderPermType type,
+                                      FolderPerm *perm)
+{
+    char *sql;
+    sqlite3_stmt *stmt;
+
+    g_return_val_if_fail ((type == FOLDER_PERM_TYPE_USER ||
+                           type == FOLDER_PERM_TYPE_GROUP),
+                          -1);
+
+    if (!perm) {
+        return 0;
+    }
+
+    /* Update db. */
+    pthread_mutex_lock (&mgr->priv->db_lock);
+
+    if (g_strcmp0 (perm->path, "") == 0) {
+        if (type == FOLDER_PERM_TYPE_USER)
+            sql = "DELETE FROM FolderUserPerms WHERE repo_id = ?";
+        else
+            sql = "DELETE FROM FolderGroupPerms WHERE repo_id = ?";
+    } else {
+        if (type == FOLDER_PERM_TYPE_USER)
+            sql = "DELETE FROM FolderUserPerms WHERE repo_id = ? and path = ?";
+        else
+            sql = "DELETE FROM FolderGroupPerms WHERE repo_id = ? and path = ?";
+    }
+
+    stmt = sqlite_query_prepare (mgr->priv->db, sql);
+    sqlite3_bind_text (stmt, 1, repo_id, -1, SQLITE_TRANSIENT);
+    if (g_strcmp0 (perm->path, "") != 0)
+        sqlite3_bind_text (stmt, 2, perm->path, -1, SQLITE_TRANSIENT);
+    if (sqlite3_step (stmt) != SQLITE_DONE) {
+        seaf_warning ("Failed to remove folder perm for %.8s: %s.\n",
+                      repo_id, sqlite3_errmsg (mgr->priv->db));
+        sqlite3_finalize (stmt);
+        pthread_mutex_unlock (&mgr->priv->db_lock);
+        return -1;
+    }
+    sqlite3_finalize (stmt);
+
+    pthread_mutex_unlock (&mgr->priv->db_lock);
+
+    /* Update in memory */
+    pthread_mutex_lock (&mgr->priv->perm_lock);
+    delete_folder_perm (mgr, repo_id, type, perm);
+    pthread_mutex_unlock (&mgr->priv->perm_lock);
+
+    return 0;
+}
+
+int
+seaf_repo_manager_update_folder_perm (SeafRepoManager *mgr,
+                                      const char *repo_id,
+                                      FolderPermType type,
+                                      FolderPerm *perm)
+{
+    char *sql;
+    sqlite3_stmt *stmt;
+
+    g_return_val_if_fail ((type == FOLDER_PERM_TYPE_USER ||
+                           type == FOLDER_PERM_TYPE_GROUP),
+                          -1);
+
+    if (!perm) {
+        return 0;
+    }
+
+    /* Update db. */
+    pthread_mutex_lock (&mgr->priv->db_lock);
+
+    if (type == FOLDER_PERM_TYPE_USER)
+        sql = "DELETE FROM FolderUserPerms WHERE repo_id = ? and path = ?";
+    else
+        sql = "DELETE FROM FolderGroupPerms WHERE repo_id = ? and path = ?";
+    stmt = sqlite_query_prepare (mgr->priv->db, sql);
+    sqlite3_bind_text (stmt, 1, repo_id, -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text (stmt, 2, perm->path, -1, SQLITE_TRANSIENT);
+    if (sqlite3_step (stmt) != SQLITE_DONE) {
+        seaf_warning ("Failed to remove folder perm for %.8s(%s): %s.\n",
+                      repo_id, perm->path, sqlite3_errmsg (mgr->priv->db));
+        sqlite3_finalize (stmt);
+        pthread_mutex_unlock (&mgr->priv->db_lock);
+        return -1;
+    }
+    sqlite3_finalize (stmt);
+
+    if (type == FOLDER_PERM_TYPE_USER)
+        sql = "INSERT INTO FolderUserPerms VALUES (?, ?, ?)";
+    else
+        sql = "INSERT INTO FolderGroupPerms VALUES (?, ?, ?)";
+    stmt = sqlite_query_prepare (mgr->priv->db, sql);
+
+    sqlite3_bind_text (stmt, 1, repo_id, -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text (stmt, 2, perm->path, -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text (stmt, 3, perm->permission, -1, SQLITE_TRANSIENT);
+
+    if (sqlite3_step (stmt) != SQLITE_DONE) {
+        seaf_warning ("Failed to insert folder perm for %.8s(%s): %s.\n",
+                      repo_id, perm->path, sqlite3_errmsg (mgr->priv->db));
+        sqlite3_finalize (stmt);
+        pthread_mutex_unlock (&mgr->priv->db_lock);
+        return -1;
+    }
+
+    sqlite3_finalize (stmt);
+
+    pthread_mutex_unlock (&mgr->priv->db_lock);
+
+    /* Update in memory */
+    GList *folder_perms;
+
+    pthread_mutex_lock (&mgr->priv->perm_lock);
+    if (type == FOLDER_PERM_TYPE_USER) {
+        folder_perms = g_hash_table_lookup (mgr->priv->user_perms, repo_id);
+        if (folder_perms) {
+            GList *existing = g_list_find_custom (folder_perms,
+                                                  perm,
+                                                  comp_folder_perms);
+            if (existing) {
+                FolderPerm *old_perm = existing->data;
+                g_free (old_perm->permission);
+                old_perm->permission = g_strdup (perm->permission);
+            } else {
+                FolderPerm *new_perm = folder_perm_new (perm->path, perm->permission);
+                folder_perms = g_list_insert_sorted (folder_perms, new_perm,
+                                                     comp_folder_perms);
+            }
+        } else {
+                FolderPerm *new_perm = folder_perm_new (perm->path, perm->permission);
+                folder_perms = g_list_insert_sorted (folder_perms, new_perm,
+                                                     comp_folder_perms);
+        }
+        g_hash_table_insert (mgr->priv->user_perms, g_strdup(repo_id), folder_perms);
+    } else if (type == FOLDER_PERM_TYPE_GROUP) {
+        folder_perms = g_hash_table_lookup (mgr->priv->group_perms, repo_id);
+        if (folder_perms) {
+            GList *existing = g_list_find_custom (folder_perms,
+                                                  perm,
+                                                  comp_folder_perms);
+            if (existing) {
+                FolderPerm *old_perm = existing->data;
+                g_free (old_perm->permission);
+                old_perm->permission = g_strdup (perm->permission);
+            } else {
+                FolderPerm *new_perm = folder_perm_new (perm->path, perm->permission);
+                folder_perms = g_list_insert_sorted (folder_perms, new_perm,
+                                                     comp_folder_perms);
+            }
+        } else {
+                FolderPerm *new_perm = folder_perm_new (perm->path, perm->permission);
+                folder_perms = g_list_insert_sorted (folder_perms, new_perm,
+                                                     comp_folder_perms);
+        }
+        g_hash_table_insert (mgr->priv->group_perms, g_strdup(repo_id), folder_perms);
+    }
+    pthread_mutex_unlock (&mgr->priv->perm_lock);
+
+    return 0;
+}
+
 int
 seaf_repo_manager_update_folder_perms (SeafRepoManager *mgr,
                                        const char *repo_id,
@@ -677,6 +889,7 @@ seaf_repo_free (SeafRepo *repo)
     g_free (repo->desc);
     g_free (repo->category);
     g_free (repo->token);
+    g_free (repo->jwt_token);
     if (repo->repo_uname)
         g_free (repo->repo_uname);
     if (repo->worktree)
@@ -1561,6 +1774,10 @@ seaf_repo_manager_mark_repo_deleted (SeafRepoManager *mgr,
 
     repo->delete_pending = TRUE;
     repo->remove_cache = remove_cache;
+
+#ifdef COMPILE_WS
+    seaf_notif_manager_unsubscribe_repo (seaf->notif_mgr, repo);
+#endif
 
     return 0;
 }
@@ -2551,22 +2768,6 @@ load_current_account_repo_info (SeafRepoManager *mgr,
     return 0;
 }
 
-static char *
-parse_fileserver_addr (const char *server_addr)
-{
-    char *location = strstr(server_addr, "//");
-    if (!location)
-        return NULL;
-    location += 2;
-
-    char *sep = strchr (location, '/');
-    if (!sep) {
-        return g_strdup(server_addr);
-    } else {
-        return g_strndup (server_addr, sep - server_addr);
-    }
-}
-
 /* static void */
 /* update_file_sync_status_cb (const char *repo_id, */
 /*                             const char *file_path, */
@@ -2748,6 +2949,7 @@ seaf_repo_manager_get_current_account (SeafRepoManager *mgr)
     ret->unique_id = g_strdup(curr->unique_id);
     ret->repo_list_fetched = curr->repo_list_fetched;
     ret->all_repos_loaded = curr->all_repos_loaded;
+    ret->server_disconnected = curr->server_disconnected;
 
 out:
     pthread_rwlock_unlock (&mgr->priv->account_lock);
@@ -2817,6 +3019,17 @@ seaf_repo_manager_update_current_account (SeafRepoManager *mgr,
     pthread_rwlock_unlock (&mgr->priv->account_lock);
 
     return 0;
+}
+
+void
+seaf_repo_manager_set_account_server_disconnected (SeafRepoManager *mgr,
+                                                   gboolean server_disconnected)
+{
+    pthread_rwlock_wrlock (&mgr->priv->account_lock);
+
+    mgr->priv->curr_account->server_disconnected = server_disconnected;
+
+    pthread_rwlock_unlock (&mgr->priv->account_lock);
 }
 
 static int

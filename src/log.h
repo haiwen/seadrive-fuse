@@ -28,7 +28,8 @@ typedef enum
     SEAFILE_DEBUG_MERGE = 1 << 5,
     SEAFILE_DEBUG_FS = 1 << 6,  /* Virtual FS */
     SEAFILE_DEBUG_CURL = 1 << 7, /* libcurl verbose output */
-    SEAFILE_DEBUG_OTHER = 1 << 8,
+    SEAFILE_DEBUG_NOTIFICATION = 1 << 8,
+    SEAFILE_DEBUG_OTHER = 1 << 9,
 } SeafileDebugFlags;
 
 gboolean

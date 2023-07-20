@@ -19,6 +19,17 @@ cd libsearpc
 make
 sudo make install
 ```
+To build [seadrive-fuse](https://github.com/haiwen/seadrive-fuse), you need build [libwebsockets](https://github.com/warmcat/libwebsockets).
+### libwebsockets
+```
+git clone --branch=v4.3.0 https://github.com/warmcat/libwebsockets
+cd libwebsockets
+mkdir build
+cd build
+cmake ..
+make
+sudo make install
+```
 ### seadrive-fuse
 ```
 git clone https://github.com/haiwen/seadrive-fuse.git

@@ -333,7 +333,7 @@ seafile_mark_file_locked (const char *repo_id, const char *path, GError **error)
         canon_path[len-1] = 0;
 
     ret = seaf_filelock_manager_mark_file_locked (seaf->filelock_mgr,
-                                                  repo_id, canon_path, FALSE);
+                                                  repo_id, canon_path, LOCKED_MANUAL);
 
     g_free (canon_path);
     return ret;

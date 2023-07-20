@@ -33,6 +33,8 @@
 #define MAX_RESYNC_COUNT 3
 #define CHECK_REPO_LIST_INTERVAL 1     /* 1s */
 
+#define JWT_TOKEN_EXPIRE_TIME 3*24*3600 /* 3 days */
+
 struct _HttpServerState {
     int http_version;
     gboolean checking;
@@ -42,6 +44,9 @@ struct _HttpServerState {
     char *effective_host;
     gboolean use_fileserver_port;
 
+    gboolean notif_server_checked;
+    gboolean notif_server_alive;
+
     gboolean folder_perms_not_supported;
     gint64 last_check_perms_time;
     gboolean checking_folder_perms;
@@ -50,7 +55,12 @@ struct _HttpServerState {
     gint64 last_check_locked_files_time;
     gboolean checking_locked_files;
 
+    gboolean immediate_check_folder_perms;
+    gboolean immediate_check_locked_files;
+
     gboolean is_fileserver_repo_list_api_disabled;
+
+    gint64 n_jwt_token_request;
 };
 typedef struct _HttpServerState HttpServerState;
 
@@ -237,6 +247,16 @@ seaf_sync_manager_get_sync_info (SeafSyncManager *mgr,
                                  const char *repo_id)
 {
     return g_hash_table_lookup (mgr->priv->sync_infos, repo_id);
+}
+
+void
+seaf_sync_manager_set_last_sync_time (SeafSyncManager *mgr,
+                                      const char *repo_id,
+                                      gint64 last_sync_time)
+{
+    SyncInfo *info;
+    info = get_sync_info (mgr, repo_id);
+    info->last_sync_time = last_sync_time;
 }
 
 static HttpServerState *
@@ -999,6 +1019,10 @@ out:
     return ret;
 }
 
+#define HTTP_SERVERR_BAD_GATEWAY    502
+#define HTTP_SERVERR_UNAVAILABLE    503
+#define HTTP_SERVERR_TIMEOUT        504
+
 static void update_current_repos(HttpAPIGetResult *result, void *user_data)
 {
     SeafAccount *account = user_data;
@@ -1009,13 +1033,25 @@ static void update_current_repos(HttpAPIGetResult *result, void *user_data)
     SeafRepo *repo;
 
     if (!result->success) {
+        if (result->http_status == HTTP_SERVERR_BAD_GATEWAY ||
+            result->http_status == HTTP_SERVERR_UNAVAILABLE ||
+            result->http_status == HTTP_SERVERR_TIMEOUT) {
+            seaf_repo_manager_set_account_server_disconnected (seaf->repo_mgr, TRUE);
+        }
         record_sync_error (seaf->sync_mgr, NULL, NULL, NULL,
                            transfer_error_to_error_id (result->error_code));
         g_atomic_int_set (&seaf->sync_mgr->priv->server_disconnected, 1);
         return;
     } else {
+        //If the fileserver hangs up before sending events to the notification server,
+        // the client will not receive the updates, and some updates will be lost.
+        // Therefore, after the fileserver recovers, immediately checking locks and folder perms.
+        if (account->server_disconnected) {
+            seaf_sync_manager_check_locks_and_folder_perms (seaf->sync_mgr, account->fileserver_addr);
+        }
         remove_sync_error (seaf->sync_mgr, NULL, NULL);
         g_atomic_int_set (&seaf->sync_mgr->priv->server_disconnected, 0);
+        seaf_repo_manager_set_account_server_disconnected (seaf->repo_mgr, FALSE);
     }
 
     /* If the get repo list request was sent around account switching,
@@ -1220,8 +1256,9 @@ check_folder_perms_done (HttpFolderPerms *result, void *user_data)
 }
 
 static void
-check_folder_permissions (SeafSyncManager *mgr,
-                          HttpServerState *server_state)
+check_folder_permissions_immediately  (SeafSyncManager *mgr,
+                                       HttpServerState *server_state,
+                                       gboolean force)
 {
     GList *repo_ids;
     GList *ptr;
@@ -1231,17 +1268,6 @@ check_folder_permissions (SeafSyncManager *mgr,
     HttpFolderPermReq *req;
     GList *requests = NULL;
 
-    gint64 now = (gint64)time(NULL);
-
-    if (server_state->http_version == 0 ||
-        server_state->folder_perms_not_supported ||
-        server_state->checking_folder_perms)
-        return;
-
-    if (server_state->last_check_perms_time > 0 &&
-        now - server_state->last_check_perms_time < CHECK_FOLDER_PERMS_INTERVAL)
-        return;
-
     repo_ids = seaf_repo_manager_get_current_repo_ids (seaf->repo_mgr);
 
     for (ptr = repo_ids; ptr; ptr = ptr->next) {
@@ -1250,6 +1276,14 @@ check_folder_permissions (SeafSyncManager *mgr,
         repo = seaf_repo_manager_get_repo (seaf->repo_mgr, repo_id);
         if (!repo)
             continue;
+
+#ifdef COMPILE_WS
+        // Don't need to check folder perms regularly when we get folder perms from notification server.
+        if (!force && seaf_notif_manager_is_repo_subscribed (seaf->notif_mgr, repo)) {
+            seaf_repo_unref (repo);
+            continue;
+        }
+#endif
 
         if (!repo->token) {
             seaf_repo_unref (repo);
@@ -1288,6 +1322,30 @@ check_folder_permissions (SeafSyncManager *mgr,
         seaf_warning ("Failed to schedule check folder permissions\n");
         server_state->checking_folder_perms = FALSE;
     }
+}
+
+static void
+check_folder_permissions (SeafSyncManager *mgr,
+                          HttpServerState *server_state)
+{
+    gint64 now = (gint64)time(NULL);
+
+    if (server_state->http_version == 0 ||
+        server_state->folder_perms_not_supported ||
+        server_state->checking_folder_perms)
+        return;
+
+    if (server_state->immediate_check_folder_perms) {
+        server_state->immediate_check_folder_perms = FALSE;
+        check_folder_permissions_immediately (mgr, server_state, TRUE);
+        return;
+    }
+
+    if (server_state->last_check_perms_time > 0 &&
+        now - server_state->last_check_perms_time < CHECK_FOLDER_PERMS_INTERVAL)
+        return;
+
+    check_folder_permissions_immediately (mgr, server_state, FALSE);
 }
 
 static void
@@ -1331,7 +1389,8 @@ check_server_locked_files_done (HttpLockedFiles *result, void *user_data)
 }
 
 static void
-check_locked_files (SeafSyncManager *mgr, HttpServerState *server_state)
+check_locked_files_immediately (SeafSyncManager *mgr, HttpServerState *server_state,
+                                gboolean force)
 {
     GList *repo_ids;
     GList *ptr;
@@ -1341,16 +1400,6 @@ check_locked_files (SeafSyncManager *mgr, HttpServerState *server_state)
     HttpLockedFilesReq *req;
     GList *requests = NULL;
 
-    gint64 now = (gint64)time(NULL);
-
-    if (server_state->http_version == 0 ||
-        server_state->locked_files_not_supported ||
-        server_state->checking_locked_files)
-        return;
-
-    if (server_state->last_check_locked_files_time > 0 &&
-        now - server_state->last_check_locked_files_time < CHECK_SERVER_LOCKED_FILES_INTERVAL)
-        return;
 
     repo_ids = seaf_repo_manager_get_current_repo_ids (seaf->repo_mgr);
 
@@ -1360,6 +1409,14 @@ check_locked_files (SeafSyncManager *mgr, HttpServerState *server_state)
         repo = seaf_repo_manager_get_repo (seaf->repo_mgr, repo_id);
         if (!repo)
             continue;
+
+#ifdef COMPILE_WS
+        // Don't need to check locked files regularly when we get locked files from notification server.
+        if (!force && seaf_notif_manager_is_repo_subscribed (seaf->notif_mgr, repo)) {
+            seaf_repo_unref (repo);
+            continue;
+        }
+#endif
 
         if (!repo->token) {
             seaf_repo_unref (repo);
@@ -1398,6 +1455,29 @@ check_locked_files (SeafSyncManager *mgr, HttpServerState *server_state)
         seaf_warning ("Failed to schedule check server locked files\n");
         server_state->checking_locked_files = FALSE;
     }
+}
+
+static void
+check_locked_files (SeafSyncManager *mgr, HttpServerState *server_state)
+{
+    gint64 now = (gint64)time(NULL);
+
+    if (server_state->http_version == 0 ||
+        server_state->locked_files_not_supported ||
+        server_state->checking_locked_files)
+        return;
+    
+    if (server_state->immediate_check_locked_files) {
+        server_state->immediate_check_locked_files = FALSE;
+        check_locked_files_immediately (mgr, server_state, TRUE);
+        return;
+    }
+
+    if (server_state->last_check_locked_files_time > 0 &&
+        now - server_state->last_check_locked_files_time < CHECK_SERVER_LOCKED_FILES_INTERVAL)
+        return;
+
+    check_locked_files_immediately (mgr, server_state, FALSE);
 }
 
 static char *
@@ -1517,6 +1597,91 @@ check_http_protocol (SeafSyncManager *mgr, const char *server_url)
     return FALSE;
 }
 
+static void
+check_notif_server_done (gboolean is_alive, void *user_data)
+{
+    HttpServerState *state = user_data;
+    
+    if (is_alive) {
+        state->notif_server_alive = TRUE;
+        seaf_message ("Notification server is enabled on the remote server %s.\n", state->effective_host);
+    }
+}
+
+static char *
+http_notification_url (const char *url)
+{
+    const char *host;
+    char *colon;
+    char *url_no_port;
+    char *ret = NULL;
+
+    /* Just return the url itself if it's invalid. */
+    if (strlen(url) <= strlen("http://"))
+        return g_strdup(url);
+
+    /* Skip protocol schem. */
+    host = url + strlen("http://");
+
+    colon = strrchr (host, ':');
+    if (colon) {
+        url_no_port = g_strndup(url, colon - url);
+        ret = g_strconcat(url_no_port, ":8083", NULL);
+        g_free (url_no_port);
+    } else {
+        ret = g_strconcat(url, ":8083", NULL);
+    }
+
+    return ret;
+}
+
+#ifdef COMPILE_WS
+// Returns TRUE if notification server is alive; otherwise FALSE.
+// We only check notification server once.
+static gboolean
+check_notif_server (SeafSyncManager *mgr, const char *server_url)
+{
+    pthread_mutex_lock (&mgr->priv->server_states_lock);
+
+    HttpServerState *state = g_hash_table_lookup (mgr->priv->http_server_states,
+                                                  server_url);
+
+    pthread_mutex_unlock (&mgr->priv->server_states_lock);
+    if (!state) {
+        return FALSE;
+    }
+
+    if (state->notif_server_alive) {
+        return TRUE;
+    }
+
+    if (state->notif_server_checked) {
+        return FALSE;
+    }
+
+    char *notif_url = NULL;
+    if (state->use_fileserver_port) {
+        notif_url = http_notification_url (server_url);
+    } else {
+        notif_url = g_strdup (server_url);
+    }
+
+    if (http_tx_manager_check_notif_server (seaf->http_tx_mgr,
+                                            notif_url,
+                                            state->use_fileserver_port,
+                                            check_notif_server_done,
+                                            state) < 0) {
+        g_free (notif_url);
+        return FALSE;
+    }
+
+    state->notif_server_checked = TRUE;
+
+    g_free (notif_url);
+    return FALSE;
+}
+#endif
+
 gint
 cmp_sync_info_by_sync_time (gconstpointer a, gconstpointer b, gpointer user_data)
 {
@@ -1542,6 +1707,129 @@ notify_fs_loaded ()
     mq_mgr_push_msg (seaf->mq_mgr, SEADRIVE_NOTIFY_CHAN, msg);
     seaf_message ("All repo fs trees are loaded.\n");
 }
+
+static char *
+parse_jwt_token (const char *rsp_content, gint64 rsp_size)
+{
+    json_t *object = NULL;
+    json_error_t jerror;
+    const char *member = NULL;
+    char *jwt_token = NULL;
+
+    object = json_loadb (rsp_content, rsp_size, 0, &jerror);
+    if (!object) {
+        return NULL;
+    }
+
+    if (json_object_has_member (object, "jwt_token")) {
+        member = json_object_get_string_member (object, "jwt_token");
+        if (member)
+            jwt_token = g_strdup (member);
+    } else {
+        json_decref (object);
+        return NULL;
+    }
+
+    json_decref (object);
+    return jwt_token;
+}
+
+#define HTTP_FORBIDDEN 403
+#define HTTP_NOT_FOUND 404
+#define HTTP_SERVERR   500
+
+typedef struct _GetJwtTokenAux {
+    HttpServerState *state; 
+    char *repo_id;
+} GetJwtTokenAux;
+
+static void
+fileserver_get_jwt_token_cb (HttpAPIGetResult *result, void *user_data)
+{
+    GetJwtTokenAux *aux = user_data;
+    HttpServerState *state = aux->state;
+    char *repo_id = aux->repo_id;
+    SeafRepo *repo = NULL;
+    char *jwt_token = NULL;
+
+    state->n_jwt_token_request--;
+
+    if (result->http_status == HTTP_NOT_FOUND ||
+        result->http_status == HTTP_FORBIDDEN ||
+        result->http_status == HTTP_SERVERR) {
+        goto out;
+    }
+
+    if (!result->success) {
+        goto out;
+    }
+
+    repo = seaf_repo_manager_get_repo (seaf->repo_mgr, repo_id);
+    if (!repo)
+        goto out;
+
+    jwt_token = parse_jwt_token (result->rsp_content,result->rsp_size);
+    if (!jwt_token) {
+        seaf_warning ("Failed to parse jwt token for repo %s\n", repo->id);
+        goto out;
+    }
+    g_free (repo->jwt_token);
+    repo->jwt_token = jwt_token;
+
+out:
+    g_free (aux->repo_id);
+    g_free (aux);
+    seaf_repo_unref (repo);
+    return;
+}
+
+#ifdef COMPILE_WS
+static int
+check_and_subscribe_repo (HttpServerState *state, SeafRepo *repo)
+{
+    char *url = NULL;
+
+    if (!state->notif_server_alive) {
+        return 0;
+    }
+
+    if (state->n_jwt_token_request > 10) {
+        return 0;
+    }
+
+    gint64 now = (gint64)time(NULL);
+    if (now - repo->last_check_jwt_token > JWT_TOKEN_EXPIRE_TIME) {
+        repo->last_check_jwt_token = now;
+        if (!state->use_fileserver_port)
+            url = g_strdup_printf ("%s/seafhttp/repo/%s/jwt-token", state->effective_host, repo->id);
+        else
+            url = g_strdup_printf ("%s/repo/%s/jwt-token", state->effective_host, repo->id);
+
+        state->n_jwt_token_request++;
+        GetJwtTokenAux *aux = g_new0 (GetJwtTokenAux, 1);
+        aux->repo_id = g_strdup (repo->id);
+        aux->state = state;
+        if (http_tx_manager_fileserver_api_get (seaf->http_tx_mgr,
+                                            state->effective_host,
+                                            url,
+                                            repo->token,
+                                            fileserver_get_jwt_token_cb,
+                                            aux) < 0) {
+            g_free (aux->repo_id);
+            g_free (aux);
+            state->n_jwt_token_request--;
+        }
+        g_free (url);
+        return 0;
+    }
+    if (!seaf_notif_manager_is_repo_subscribed (seaf->notif_mgr, repo)) {
+        if (repo->jwt_token)
+            seaf_notif_manager_subscribe_repo (seaf->notif_mgr, repo);
+    }
+
+    return 0;
+}
+#endif
 
 static void
 clone_repo (SeafSyncManager *manager,
@@ -1584,6 +1872,13 @@ auto_sync_pulse (void *vmanager)
         seaf_account_free (account);
         return TRUE;
     }
+
+#ifdef COMPILE_WS
+    if (check_notif_server (manager, account->fileserver_addr)) {
+        seaf_notif_manager_connect_server (seaf->notif_mgr, account->fileserver_addr,
+                                           state->use_fileserver_port);
+    }
+#endif
 
     if (account->is_pro) {
         check_folder_permissions (manager, state);
@@ -1698,6 +1993,10 @@ auto_sync_pulse (void *vmanager)
         }
 
         sync_repo (manager, state, sync_info, repo);
+
+#ifdef COMPILE_WS
+        check_and_subscribe_repo (state, repo);
+#endif
 
         seaf_repo_unref (repo);
     }
@@ -2029,6 +2328,24 @@ check_head_commit_http (SyncTask *task)
         seaf_sync_manager_set_task_error (task, SYNC_ERROR_GET_SYNC_INFO);
 
     return ret;
+}
+
+void
+seaf_sync_manager_check_locks_and_folder_perms (SeafSyncManager *manager, const char *server_url)
+{
+    HttpServerState *state;
+
+    state = get_http_server_state (manager->priv, server_url);
+    if (!state) {
+        return;
+    }
+
+    if (seaf_repo_manager_current_account_is_pro (seaf->repo_mgr)) {
+        state->immediate_check_folder_perms = TRUE;
+        state->immediate_check_locked_files = TRUE;
+    }
+
+    return;
 }
 
 gboolean
@@ -2624,10 +2941,11 @@ on_repo_http_uploaded (SeafileSession *seaf,
             /*                                   SYNC_ERROR_ID_QUOTA_FULL); */
             /*     task->repo->quota_full_notified = 1; */
             /* } */
-        } else
+        } else {
             if (tx_task->error == HTTP_TASK_ERR_BAD_LOCAL_DATA)
                 print_upload_corrupt_debug_info (task->repo);
             seaf_sync_manager_set_task_error (task, SYNC_ERROR_UPLOAD);
+        }
     }
 }
 
@@ -3700,7 +4018,7 @@ do_lock_file (LockFileJob *job)
     }
 
     /* Mark file as locked locally so that the user can see the effect immediately. */
-    seaf_filelock_manager_mark_file_locked (seaf->filelock_mgr, repo->id, job->path, TRUE);
+    seaf_filelock_manager_mark_file_locked (seaf->filelock_mgr, repo->id, job->path, LOCKED_AUTO);
 
 out:
     seaf_repo_unref (repo);

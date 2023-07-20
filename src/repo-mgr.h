@@ -54,6 +54,9 @@ struct _SeafRepo {
 
     gchar      *token;          /* token for access this repo on server */
 
+    gchar      *jwt_token;
+    gint64     last_check_jwt_token;
+
     gboolean      is_readonly;
 
     char *repo_uname;
@@ -260,6 +263,18 @@ void
 folder_perm_free (FolderPerm *perm);
 
 int
+seaf_repo_manager_delete_folder_perm (SeafRepoManager *mgr,
+                                      const char *repo_id,
+                                      FolderPermType type,
+                                      FolderPerm *perm);
+
+int
+seaf_repo_manager_update_folder_perm (SeafRepoManager *mgr,
+                                      const char *repo_id,
+                                      FolderPermType type,
+                                      FolderPerm *perm);
+
+int
 seaf_repo_manager_update_folder_perms (SeafRepoManager *mgr,
                                        const char *repo_id,
                                        FolderPermType type,
@@ -290,6 +305,7 @@ struct _SeafAccount {
     char *unique_id;            /* server + username */
     gboolean repo_list_fetched;
     gboolean all_repos_loaded;
+    gboolean server_disconnected;
 };
 typedef struct _SeafAccount SeafAccount;
 
@@ -422,6 +438,10 @@ seaf_repo_manager_set_current_repo_list_fetched (SeafRepoManager *mgr);
 
 void
 seaf_repo_manager_set_current_account_all_repos_loaded (SeafRepoManager *mgr);
+
+void
+seaf_repo_manager_set_account_server_disconnected (SeafRepoManager *mgr,
+                                                   gboolean server_disconnected);
 
 struct _SeafAccountSpace {
     gint64 total;
