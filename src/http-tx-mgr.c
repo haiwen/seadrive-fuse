@@ -36,6 +36,7 @@
 #define HTTP_NO_QUOTA 443
 #define HTTP_REPO_DELETED 444
 #define HTTP_REPO_CORRUPTED 445
+#define HTTP_BLOCK_MISSING 446
 #define HTTP_REPO_TOO_LARGE 447
 #define HTTP_INTERNAL_SERVER_ERROR 500
 
@@ -4029,11 +4030,16 @@ update_branch (HttpTxTask *task, Connection *conn)
         seaf_warning ("Bad response code for PUT %s: %d.\n", url, status);
         handle_http_errors (task, status);
 
-        if (status == HTTP_FORBIDDEN) {
+        if (status == HTTP_FORBIDDEN || status == HTTP_BLOCK_MISSING) {
             rsp_content_str = g_new0 (gchar, rsp_size + 1);
             memcpy (rsp_content_str, rsp_content, rsp_size);
-            seaf_warning ("%s\n", rsp_content_str);
-            notify_permission_error (task, rsp_content_str);
+            if (status == HTTP_FORBIDDEN) {
+                seaf_warning ("%s\n", rsp_content_str);
+                notify_permission_error (task, rsp_content_str);
+            } else if (status == HTTP_BLOCK_MISSING) {
+                seaf_warning ("Failed to upload files: %s\n", rsp_content_str);
+                task->error = HTTP_TASK_ERR_BLOCK_MISSING;
+            }
             g_free (rsp_content_str);
         }
 

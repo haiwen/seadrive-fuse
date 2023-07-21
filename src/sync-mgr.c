@@ -124,6 +124,7 @@ enum {
     SYNC_ERROR_FOLDER_PERM_DENIED,
     SYNC_ERROR_DEL_CONFIRMATION_PENDING,
     SYNC_ERROR_TOO_MANY_FILES,
+    SYNC_ERROR_BLOCK_MISSING,
     SYNC_ERROR_UNKNOWN,
     SYNC_ERROR_NUM,
 };
@@ -329,13 +330,17 @@ static SyncErrorInfo sync_error_info_tbl[] = {
         SYNC_ERROR_LEVEL_REPO,
     }, // 30
     {
-        SYNC_ERROR_ID_GENERAL_ERROR,
+        SYNC_ERROR_ID_BLOCK_MISSING,
         SYNC_ERROR_LEVEL_REPO,
     }, // 31
     {
-        SYNC_ERROR_ID_NO_ERROR,
+        SYNC_ERROR_ID_GENERAL_ERROR,
         SYNC_ERROR_LEVEL_REPO,
     }, // 32
+    {
+        SYNC_ERROR_ID_NO_ERROR,
+        SYNC_ERROR_LEVEL_REPO,
+    }, // 33
 };
 
 int
@@ -456,6 +461,9 @@ static const char *sync_error_str[] = {
     "Failed to get sync info from server.",
     "File is locked by another user.",
     "Update to file denied by folder permission setting.",
+    "Waiting for confirmation to delete files.",
+    "Too many files in library.",
+    "Failed to upload file blocks.",
     "Unknown error.",
 };
 
@@ -851,6 +859,8 @@ seaf_sync_manager_set_task_error (SyncTask *task, int error)
             sync_error_id = SYNC_ERROR_ID_DEL_CONFIRMATION_PENDING;
         else if (task->error == SYNC_ERROR_TOO_MANY_FILES)
             sync_error_id = SYNC_ERROR_ID_TOO_MANY_FILES;
+        else if (task->error == SYNC_ERROR_BLOCK_MISSING)
+            sync_error_id = SYNC_ERROR_ID_BLOCK_MISSING;
         else if (task->tx_error_code > 0)
             sync_error_id = transfer_error_to_error_id (task->tx_error_code);
         else
@@ -3085,6 +3095,8 @@ on_repo_http_uploaded (SeafileSession *seaf,
             /*                                   SYNC_ERROR_ID_QUOTA_FULL); */
             /*     task->repo->quota_full_notified = 1; */
             /* } */
+        } else if (tx_task->error == HTTP_TASK_ERR_BLOCK_MISSING) {
+            seaf_sync_manager_set_task_error (task, SYNC_ERROR_BLOCK_MISSING);
         } else {
             if (tx_task->error == HTTP_TASK_ERR_BAD_LOCAL_DATA)
                 print_upload_corrupt_debug_info (task->repo);
