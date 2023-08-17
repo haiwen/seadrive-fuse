@@ -21,6 +21,10 @@ sudo make install
 ```
 To build [seadrive-fuse](https://github.com/haiwen/seadrive-fuse), you need build [libwebsockets](https://github.com/warmcat/libwebsockets).
 ### libwebsockets
+The default version of requires libwebsockets to be at least 4.0.20.
+If the built-in version of your distribution is lower than the required version, you can choose to disable this function by set `--enable-ws` to no.
+Also you can build a higher version of libwebsockets by yourself.
+
 ```
 git clone --branch=v4.3.0 https://github.com/warmcat/libwebsockets
 cd libwebsockets
