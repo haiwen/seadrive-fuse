@@ -770,10 +770,8 @@ lookup_folder_perm (GList *perms, const char *path)
     return permission;
 }
 
-static gboolean
-is_path_writable (const char *repo_id,
-                  gboolean is_repo_readonly,
-                  const char *path)
+char *
+get_folder_perm_by_path (const char *repo_id, const char *path)
 {
     SeafRepoManager *mgr = seaf->repo_mgr;
     GList *user_perms = NULL, *group_perms = NULL;
@@ -785,8 +783,13 @@ is_path_writable (const char *repo_id,
     user_perms = g_hash_table_lookup (mgr->priv->user_perms, repo_id);
     group_perms = g_hash_table_lookup (mgr->priv->group_perms, repo_id);
 
-    if (user_perms || group_perms)
-        abs_path = g_strconcat ("/", path, NULL);
+    if (user_perms || group_perms) {
+        if (path[0] != '/') {
+            abs_path = g_strconcat ("/", path, NULL);
+        } else {
+            abs_path = g_strdup (path);
+        }
+    }
 
     if (user_perms)
         permission = lookup_folder_perm (user_perms, abs_path);
@@ -796,6 +799,18 @@ is_path_writable (const char *repo_id,
     pthread_mutex_unlock (&mgr->priv->perm_lock);
 
     g_free (abs_path);
+
+    return permission;
+}
+
+static gboolean
+is_path_writable (const char *repo_id,
+                  gboolean is_repo_readonly,
+                  const char *path)
+{
+    char *permission = NULL;
+
+    permission = get_folder_perm_by_path (repo_id, path);
 
     if (!permission)
         return !is_repo_readonly;
@@ -823,6 +838,81 @@ seaf_repo_manager_is_path_writable (SeafRepoManager *mgr,
 
     seaf_repo_unref (repo);
     return ret;
+}
+
+gboolean
+is_path_invisible (const char *repo_id, const char *path)
+{
+    char *permission = NULL;
+
+    permission = get_folder_perm_by_path (repo_id, path);
+
+    if (!permission)
+        return FALSE;
+
+    if (strcmp (permission, "invisible") == 0)
+        return TRUE;
+    else
+        return FALSE;
+}
+
+gboolean
+seaf_repo_manager_is_path_invisible (SeafRepoManager *mgr,
+                                     const char *repo_id,
+                                     const char *path)
+{
+    SeafRepo *repo;
+    gboolean ret;
+
+    repo = seaf_repo_manager_get_repo (mgr, repo_id);
+    if (!repo) {
+        return TRUE;
+    }
+
+    ret = is_path_invisible (repo_id, path);
+
+    seaf_repo_unref (repo);
+    return ret;
+}
+
+static gboolean
+include_invisible_perm (GList *perms)
+{
+    GList *ptr;
+    FolderPerm *perm;
+    char *folder;
+    int len;
+    char *permission = NULL;
+
+    for (ptr = perms; ptr; ptr = ptr->next) {
+        perm = ptr->data;
+        if (strcmp (perm->permission, "invisible") == 0)
+            return TRUE;
+    }
+
+    return FALSE;
+}
+
+gboolean
+seaf_repo_manager_include_invisible_perm (SeafRepoManager *mgr, const char *repo_id)
+{
+    GList *user_perms = NULL, *group_perms = NULL;
+
+    pthread_mutex_lock (&mgr->priv->perm_lock);
+    user_perms = g_hash_table_lookup (mgr->priv->user_perms, repo_id);
+    if (user_perms && include_invisible_perm (user_perms)) {
+        pthread_mutex_unlock (&mgr->priv->perm_lock);
+        return TRUE;
+    }
+
+    group_perms = g_hash_table_lookup (mgr->priv->group_perms, repo_id);
+    if (group_perms && include_invisible_perm (group_perms)) {
+        pthread_mutex_unlock (&mgr->priv->perm_lock);
+        return TRUE;
+    }
+    pthread_mutex_unlock (&mgr->priv->perm_lock);
+
+    return FALSE;
 }
 
 gboolean

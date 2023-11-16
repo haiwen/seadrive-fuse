@@ -369,6 +369,15 @@ http_tx_manager_get_fs_object (HttpTxManager *mgr, const char *host,
                                const char *repo_id, const char *obj_id, const char *file_path);
 
 int
+http_tx_manager_get_file (HttpTxManager *mgr, const char *host,
+                          gboolean use_fileserver_port, const char *token,
+                          const char *repo_id,
+                          const char *path,
+                          gint64 block_offset,
+                          HttpRecvCallback get_blk_cb, void *user_data,
+                          int *http_status);
+
+int
 http_tx_manager_api_move_file (HttpTxManager *mgr,
                                const char *host,
                                const char *api_token,

@@ -147,6 +147,9 @@ struct _SyncTask {
     SeafRepo        *repo;  /* for convenience, only valid when in_sync. */
 
     char *unsyncable_path;
+
+    char *server;
+    char *user;
 };
 typedef struct _SyncTask SyncTask;
 
@@ -541,6 +544,10 @@ static const char *sync_error_str[] = {
 static void
 sync_task_free (SyncTask *task)
 {
+    if (task->is_clone) {
+        g_free (task->server);
+        g_free (task->user);
+    }
     g_free (task->token);
     g_free (task);
 }
@@ -548,6 +555,8 @@ sync_task_free (SyncTask *task)
 static SyncTask *
 sync_task_new (SyncInfo *info,
                HttpServerState *server_state,
+               const char *server,
+               const char *user,
                const char *token,
                gboolean is_clone)
 {
@@ -568,6 +577,10 @@ sync_task_new (SyncInfo *info,
     task->is_clone = is_clone;
     if (!is_clone)
         task->repo = repo;
+    if (is_clone) {
+        task->server = g_strdup (server);
+        task->user = g_strdup (user);
+    }
 
     info->in_sync = TRUE;
     info->last_sync_time = time(NULL);
@@ -1051,6 +1064,25 @@ seaf_sync_manager_start (SeafSyncManager *mgr)
     return 0;
 }
 
+/* Synchronization framework. */
+
+typedef struct _FolderPermInfo {
+    HttpServerState *server_state;
+    SyncTask *task;
+    char *server;
+    char *user;
+} FolderPermInfo;
+
+static void
+folder_perm_info_free (FolderPermInfo *info)
+{
+    if (!info)
+        return;
+    g_free (info->server);
+    g_free (info->user);
+    g_free (info);
+}
+
 static void
 check_current_account_space_usage ()
 {
@@ -1432,7 +1464,8 @@ seaf_sync_manager_update_repo_list (SeafSyncManager *mgr)
 static void
 check_folder_perms_done (HttpFolderPerms *result, void *user_data)
 {
-    HttpServerState *server_state = user_data;
+    FolderPermInfo *perm_info = user_data;
+    HttpServerState *server_state = perm_info->server_state;
     GList *ptr;
     HttpFolderPermRes *res;
     gint64 now = (gint64)time(NULL);
@@ -1446,6 +1479,7 @@ check_folder_perms_done (HttpFolderPerms *result, void *user_data)
         if (server_state->last_check_perms_time == 0)
             server_state->folder_perms_not_supported = TRUE;
         server_state->last_check_perms_time = now;
+        folder_perm_info_free (perm_info);
         return;
     }
 
@@ -1454,7 +1488,8 @@ check_folder_perms_done (HttpFolderPerms *result, void *user_data)
         res = ptr->data;
 
         info = get_sync_info (seaf->sync_mgr, res->repo_id);
-        if (info->in_sync)
+        // Getting folder perms before clone repo will set task, at this point we need to update the folder perms.
+        if (info->in_sync && !perm_info->task)
             continue;
 
         seaf_repo_manager_update_folder_perms (seaf->repo_mgr, res->repo_id,
@@ -1469,11 +1504,14 @@ check_folder_perms_done (HttpFolderPerms *result, void *user_data)
     }
 
     server_state->last_check_perms_time = now;
+    folder_perm_info_free (perm_info);
 }
 
 static void
 check_folder_permissions_immediately  (SeafSyncManager *mgr,
                                        HttpServerState *server_state,
+                                       const char *server,
+                                       const char *user,
                                        gboolean force)
 {
     GList *repo_ids;
@@ -1528,21 +1566,29 @@ check_folder_permissions_immediately  (SeafSyncManager *mgr,
 
     server_state->checking_folder_perms = TRUE;
 
+    FolderPermInfo *info = g_new0 (FolderPermInfo, 1);
+    info->server_state = server_state;
+    info->server = g_strdup (server);
+    info->user = g_strdup (user);
+
     /* The requests list will be freed in http tx manager. */
     if (http_tx_manager_get_folder_perms (seaf->http_tx_mgr,
                                           server_state->effective_host,
                                           server_state->use_fileserver_port,
                                           requests,
                                           check_folder_perms_done,
-                                          server_state) < 0) {
+                                          info) < 0) {
         seaf_warning ("Failed to schedule check folder permissions\n");
         server_state->checking_folder_perms = FALSE;
+        folder_perm_info_free (info);
     }
 }
 
 static void
 check_folder_permissions (SeafSyncManager *mgr,
-                          HttpServerState *server_state)
+                          HttpServerState *server_state,
+                          const char *server,
+                          const char *user)
 {
     gint64 now = (gint64)time(NULL);
 
@@ -1553,7 +1599,7 @@ check_folder_permissions (SeafSyncManager *mgr,
 
     if (server_state->immediate_check_folder_perms) {
         server_state->immediate_check_folder_perms = FALSE;
-        check_folder_permissions_immediately (mgr, server_state, TRUE);
+        check_folder_permissions_immediately (mgr, server_state, server, user, TRUE);
         return;
     }
 
@@ -1561,7 +1607,7 @@ check_folder_permissions (SeafSyncManager *mgr,
         now - server_state->last_check_perms_time < CHECK_FOLDER_PERMS_INTERVAL)
         return;
 
-    check_folder_permissions_immediately (mgr, server_state, FALSE);
+    check_folder_permissions_immediately (mgr, server_state, server, user, FALSE);
 }
 
 static void
@@ -2097,7 +2143,7 @@ auto_sync_pulse (void *vmanager)
 #endif
 
     if (account->is_pro) {
-        check_folder_permissions (manager, state);
+        check_folder_permissions (manager, state, account->server, account->username);
         check_locked_files (manager, state);
     }
 
@@ -2224,6 +2270,84 @@ auto_sync_pulse (void *vmanager)
 }
 
 static void
+check_repo_folder_perms_done (HttpFolderPerms *result, void *user_data)
+{
+    FolderPermInfo *perm_info = user_data;
+    HttpServerState *server_state = perm_info->server_state;
+    SyncTask *task = perm_info->task;
+    SyncInfo *sync_info = task->info;
+    check_folder_perms_done (result, user_data);
+    if (!result->success) {
+        seaf_sync_manager_set_task_error (task, SYNC_ERROR_FETCH);
+        return;
+    }
+    RepoToken *repo_token = g_hash_table_lookup (seaf->sync_mgr->priv->repo_tokens,
+                                                 sync_info->repo_id);
+    if (!repo_token) {
+        seaf_warning ("Failed to get reop sync token fro %s.\n", sync_info->repo_id);
+        seaf_sync_manager_set_task_error (task, SYNC_ERROR_FETCH);
+        return;
+    }
+    int rc = http_tx_manager_add_download (seaf->http_tx_mgr,
+                                           sync_info->repo_id,
+                                           repo_token->repo_version,
+                                           server_state->effective_host,
+                                           repo_token->token,
+                                           sync_info->repo_info->head_commit_id,
+                                           TRUE,
+                                           server_state->http_version,
+                                           server_state->use_fileserver_port,
+                                           NULL);
+
+    if (rc < 0) {
+        seaf_warning ("Failed to add download task for repo %s from %s.\n",
+                      sync_info->repo_id, server_state->effective_host);
+        seaf_sync_manager_set_task_error (task, SYNC_ERROR_FETCH);
+        return;
+    }
+
+    transition_sync_state (task, SYNC_STATE_FETCH);
+}
+
+static void
+check_folder_permissions_by_repo (HttpServerState *server_state,
+                                  const char *server, const char *user,
+                                  const char *repo_id, const char *token,
+                                  SyncTask *task)
+{
+    HttpFolderPermReq *req;
+    GList *requests = NULL;
+
+    req = g_new0 (HttpFolderPermReq, 1);
+    memcpy (req->repo_id, repo_id, 36);
+    req->token = g_strdup(token);
+    req->timestamp = 0;
+
+    requests = g_list_append (requests, req);
+
+    server_state->checking_folder_perms = TRUE;
+
+    FolderPermInfo *info = g_new0 (FolderPermInfo, 1);
+    info->server_state = server_state;
+    info->task = task;
+    info->server = g_strdup (server);
+    info->user = g_strdup (user);
+
+    /* The requests list will be freed in http tx manager. */
+    if (http_tx_manager_get_folder_perms (seaf->http_tx_mgr,
+                                          server_state->effective_host,
+                                          server_state->use_fileserver_port,
+                                          requests,
+                                          check_repo_folder_perms_done,
+                                          info) < 0) {
+        seaf_warning ("Failed to schedule check repo %s folder permissions\n", repo_id);
+        server_state->checking_folder_perms = FALSE;
+        folder_perm_info_free (info);
+        seaf_sync_manager_set_task_error (task, SYNC_ERROR_FETCH);
+    }
+}
+
+static void
 get_repo_sync_token_cb (HttpAPIGetResult *result, void *user_data)
 {
     SyncTask *task = user_data;
@@ -2277,6 +2401,15 @@ get_repo_sync_token_cb (HttpAPIGetResult *result, void *user_data)
     repo_token->repo_version = repo_version;
     g_hash_table_insert (seaf->sync_mgr->priv->repo_tokens, g_strdup (sync_info->repo_id), repo_token);
 
+    if (seaf_repo_manager_current_account_is_pro (seaf->repo_mgr)) {
+        int timestamp = seaf_repo_manager_get_folder_perm_timestamp (seaf->repo_mgr,
+                                                                     sync_info->repo_id);
+        if (timestamp <= 0) {
+            check_folder_permissions_by_repo (state, task->server, task->user, sync_info->repo_id, token, task);
+            goto out;
+        }
+    }
+
     int rc = http_tx_manager_add_download (seaf->http_tx_mgr,
                                            sync_info->repo_id,
                                            repo_version,
@@ -2307,10 +2440,10 @@ get_repo_sync_token (SeafSyncManager *manager,
                      SyncInfo *sync_info)
 {
     SyncTask *task;
-    task = sync_task_new (sync_info, state, NULL, TRUE);
+    task = sync_task_new (sync_info, state, account->server, account->username, NULL, TRUE);
     
     RepoToken *repo_token = g_hash_table_lookup (seaf->sync_mgr->priv->repo_tokens,
-                                                 g_strdup (sync_info->repo_id));
+                                                 sync_info->repo_id);
     if(repo_token == NULL) {
         char *url = g_strdup_printf ("%s/api2/repos/%s/download-info/",
                                      account->server, sync_info->repo_id);
@@ -2331,6 +2464,15 @@ get_repo_sync_token (SeafSyncManager *manager,
         g_free (url);
     } else {
         task->token = g_strdup(repo_token->token);
+        // In order to use folder perms when cloning repo, we nned to get folder perms once immediately after getting rep token.
+        if (account->is_pro) {
+            int timestamp = seaf_repo_manager_get_folder_perm_timestamp (seaf->repo_mgr,
+                                                                         sync_info->repo_id);
+            if (timestamp <= 0) {
+                check_folder_permissions_by_repo (state, account->server, account->username, sync_info->repo_id, repo_token->token, task);
+                return;
+            }
+        }
         int rc = http_tx_manager_add_download (seaf->http_tx_mgr,
                                                sync_info->repo_id,
                                                repo_token->repo_version,
@@ -2533,7 +2675,7 @@ sync_repo (SeafSyncManager *manager,
         if (can_schedule_repo (sync_info) || repo->force_sync_pending || sync_info->del_confirmation_pending) {
             if (repo->force_sync_pending)
                 repo->force_sync_pending = FALSE;
-            task = sync_task_new (sync_info, state, repo->token, FALSE);
+            task = sync_task_new (sync_info, state, NULL, NULL, repo->token, FALSE);
 
             if (!sync_info->del_confirmation_pending) {
                 char *desc = NULL;
@@ -2601,7 +2743,7 @@ sync_repo (SeafSyncManager *manager,
         if (repo->force_sync_pending)
             repo->force_sync_pending = FALSE;
 
-        task = sync_task_new (sync_info, state, repo->token, FALSE);
+        task = sync_task_new (sync_info, state, NULL, NULL, repo->token, FALSE);
 
         /* In some cases, sync_info->repo_info->head_commit_id may be outdated.
          * To avoid mistakenly download a repo, we check server head commit
@@ -3996,7 +4138,7 @@ create_commit_from_journal (SyncInfo *info, HttpServerState *state, SeafRepo *re
         if (!repo->partial_commit_mode)
             journal_set_last_commit_time (repo->journal, now);
 
-        SyncTask *task = sync_task_new (info, state, repo->token, FALSE);
+        SyncTask *task = sync_task_new (info, state, NULL, NULL, repo->token, FALSE);
 
         if (seaf_job_manager_schedule_job (seaf->job_mgr,
                                            commit_job,

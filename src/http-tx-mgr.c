@@ -4848,6 +4848,61 @@ out:
     return ret;
 }
 
+int
+http_tx_manager_get_file (HttpTxManager *mgr, const char *host,
+                          gboolean use_fileserver_port, const char *token,
+                          const char *repo_id,
+                          const char *path,
+                          gint64 block_offset,
+                          HttpRecvCallback get_blk_cb, void *user_data,
+                          int *http_status)
+{
+    HttpTxPriv *priv = mgr->priv;
+    ConnectionPool *pool;
+    Connection *conn;
+    CURL *curl;
+    char *url;
+    int ret = 0;
+
+    pool = find_connection_pool (priv, host);
+    if (!pool) {
+        seaf_warning ("Failed to create connection pool for host %s.\n", host);
+        return -1;
+    }
+
+    conn = connection_pool_get_connection (pool);
+    if (!conn) {
+        seaf_warning ("Failed to get connection to host %s.\n", host);
+        return -1;
+    }
+
+    curl = conn->curl;
+
+    if (!use_fileserver_port)
+        url = g_strdup_printf ("%s/seafhttp/repo/%s/file/?path=%s&offset=%"G_GINT64_FORMAT"",
+                               host, repo_id, path, block_offset);
+    else
+        url = g_strdup_printf ("%s/repo/%s/file/?path=%s&offset=%"G_GINT64_FORMAT"",
+                               host, repo_id, path, block_offset);
+
+    if (http_get (curl, url, token, http_status, NULL, NULL,
+                  get_blk_cb, user_data, TRUE, HTTP_TIMEOUT_SEC, NULL) < 0) {
+        conn->release = TRUE;
+        ret = -1;
+        goto out;
+    }
+
+    if (*http_status != HTTP_OK) {
+        seaf_warning ("Bad response code for GET %s: %d.\n", url, *http_status);
+        ret = -1;
+    }
+
+out:
+    g_free (url);
+    connection_pool_return_connection (pool, conn);
+    return ret;
+}
+
 /* typedef struct { */
 /*     char block_id[41]; */
 /*     BlockHandle *block; */

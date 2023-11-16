@@ -300,6 +300,16 @@ seaf_repo_manager_is_path_writable (SeafRepoManager *mgr,
                                     const char *repo_id,
                                     const char *path);
 
+gboolean
+seaf_repo_manager_is_path_invisible(SeafRepoManager *mgr,
+                                    const char *repo_id,
+                                    const char *path);
+
+gboolean
+seaf_repo_manager_include_invisible_perm (SeafRepoManager *mgr,
+                                          const char *repo_id);
+
+
 /* Account repo list cache management. */
 
 struct _SeafAccount {
@@ -475,7 +485,7 @@ seaf_repo_manager_get_display_name_by_repo_name (SeafRepoManager *mgr,
                                                  const char *repo_name);
 
 void
-seaf_repo_manager_create_dir_placeholder_recursive (const char *repo_id, const char *dir_id, const char *fullpath);
+seaf_repo_manager_create_dir_placeholder_recursive (const char *repo_id, const char *dir_id, const char *fullpath, const char *path);
 
 gboolean
 seaf_repo_manager_is_deleted_repo (SeafRepoManager *mgr, const char *display_name);
