@@ -3672,6 +3672,7 @@ get_needed_block_list (Connection *conn, HttpTxTask *task,
     const char *block_id;
     gboolean ret = TRUE;
     int curl_error;
+    CURL *curl = conn->curl;
 
     for (i = 0; i < file->n_blocks; i++) {
         json_array_append_new (check_list, json_string (file->blk_sha1s[i]));
@@ -3680,7 +3681,7 @@ get_needed_block_list (Connection *conn, HttpTxTask *task,
         if (check_num == ID_LIST_SEGMENT_N || i == file->n_blocks - 1) {
             check_list_str = json_dumps (check_list, JSON_COMPACT);
             curl_error = 0;
-            if (http_post (conn->curl, url, task->token,
+            if (http_post (curl, url, task->token,
                            check_list_str, strlen(check_list_str),
                            &status, &rsp_content, &rsp_size, TRUE, HTTP_TIMEOUT_SEC, &curl_error) < 0) {
                 conn->release = TRUE;
@@ -3731,6 +3732,7 @@ get_needed_block_list (Connection *conn, HttpTxTask *task,
     }
 
 out:
+    curl_easy_reset (curl);
     json_decref (check_list);
     return ret;
 }
@@ -5954,6 +5956,8 @@ http_tx_manager_get_file_range (HttpTxManager *mgr,
     FileRangeData data;
     data.buf = buf;
     data.size = size;
+
+    curl_easy_reset (curl);
 
     if (http_get_range (curl, file_url, NULL,
                         &status, NULL, NULL, get_file_range_cb, &data,
