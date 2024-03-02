@@ -316,6 +316,7 @@ struct _SeafAccount {
     char *server;
     char *username;
     char *token;
+    char *name;
     char *fileserver_addr;
     gboolean is_pro;
     char *unique_id;            /* server + username */
@@ -327,30 +328,51 @@ typedef struct _SeafAccount SeafAccount;
 
 void seaf_account_free (SeafAccount *account);
 
+typedef struct AccountInfo {
+    char *server;
+    char *username;
+} AccountInfo;
+
+void
+account_info_free (AccountInfo *info);
+
+AccountInfo *
+seaf_repo_manager_get_account_info_by_name  (SeafRepoManager *mgr,
+                                             const char *name);
+
 int
-seaf_repo_manager_switch_current_account (SeafRepoManager *mgr,
-                                          const char *server,
-                                          const char *username,
-                                          const char *token,
-                                          gboolean is_pro);
+seaf_repo_manager_add_account (SeafRepoManager *mgr,
+                               const char *server,
+                               const char *username,
+                               const char *token,
+                               const char *name,
+                               gboolean is_pro);
 
 SeafAccount *
-seaf_repo_manager_get_current_account (SeafRepoManager *mgr);
+seaf_repo_manager_get_account (SeafRepoManager *mgr,
+                               const char *server,
+                               const char *username);
 
 gboolean
-seaf_repo_manager_current_account_is_pro (SeafRepoManager *mgr);
+seaf_repo_manager_account_exists (SeafRepoManager *mgr,
+                                  const char *server,
+                                  const char *username);
 
-int
-seaf_repo_manager_update_current_account (SeafRepoManager *mgr,
-                                          const char *server,
-                                          const char *username,
-                                          const char *token);
+GList *
+seaf_repo_manager_get_account_list (SeafRepoManager *mgr);
+
+gboolean
+seaf_repo_manager_account_is_pro (SeafRepoManager *mgr,
+                                  const char *server,
+                                  const char *user);
 
 int
 seaf_repo_manager_delete_account (SeafRepoManager *mgr,
                                   const char *server,
                                   const char *username,
-                                  gboolean remove_cache);
+                                  gboolean remoce_cache,
+                                  GError **error);
+
 
 typedef enum _RepoType {
     REPO_TYPE_UNKNOWN = 0,
@@ -392,17 +414,25 @@ GList *
 repo_type_string_list ();
 
 GList *
-seaf_repo_manager_get_current_repos (SeafRepoManager *mgr);
+seaf_repo_manager_get_account_repos (SeafRepoManager *mgr,
+                                     const char *server,
+                                     const char *user);
 
 GList *
-seaf_repo_manager_get_current_repo_ids (SeafRepoManager *mgr);
+seaf_repo_manager_get_account_repo_ids (SeafRepoManager *mgr,
+                                        const char *server,
+                                        const char *user);
 
 RepoInfo *
 seaf_repo_manager_get_repo_info_by_name (SeafRepoManager *mgr,
+                                         const char *server,
+                                         const char *user,
                                          const char *name);
 
 char *
 seaf_repo_manager_get_repo_id_by_name (SeafRepoManager *mgr,
+                                       const char *server,
+                                       const char *user,
                                        const char *name);
 
 char *
@@ -410,23 +440,23 @@ seaf_repo_manager_get_repo_display_name (SeafRepoManager *mgr,
                                          const char *id);
 
 int
-seaf_repo_manager_set_if_current_repo_unsyncable (SeafRepoManager *mgr,
-                                                  const char *repo_id,
-                                                  gboolean perm_unsyncable);
-
-void
-seaf_repo_manager_remove_current_repo (SeafRepoManager *mgr,
-                                       const char *repo_id);
+seaf_repo_manager_set_if_repo_unsyncable (SeafRepoManager *mgr,
+                                          const char *repo_id,
+                                          gboolean perm_unsyncable);
 
 int
-seaf_repo_manager_update_current_repos (SeafRepoManager *mgr,
+seaf_repo_manager_update_account_repos (SeafRepoManager *mgr,
+                                        const char *server,
+                                        const char *username,
                                         GHashTable *server_repos,
                                         GList **added,
                                         GList **removed);
 
 void
-seaf_repo_manager_remove_current_repo (SeafRepoManager *mgr,
-                                       const char *repo_id);
+seaf_repo_manager_remove_account_repo (SeafRepoManager *mgr,
+                                       const char *repo_id,
+                                       const char *server,
+                                       const char *user);
 
 void
 seaf_repo_manager_set_repo_info_head_commit (SeafRepoManager *mgr,
@@ -434,29 +464,37 @@ seaf_repo_manager_set_repo_info_head_commit (SeafRepoManager *mgr,
                                              const char *commit_id);
 
 int
-seaf_repo_manager_add_repo_to_current_account (SeafRepoManager *mgr,
-                                               const char *server,
-                                               const char *username,
-                                               SeafRepo *repo);
+seaf_repo_manager_add_repo_to_account (SeafRepoManager *mgr,
+                                       const char *server,
+                                       const char *username,
+                                       SeafRepo *repo);
 
 int
-seaf_repo_manager_rename_repo_on_current_account (SeafRepoManager *mgr,
-                                                  const char *server,
-                                                  const char *username,
-                                                  const char *repo_id,
-                                                  const char *new_name);
+seaf_repo_manager_rename_repo_on_account (SeafRepoManager *mgr,
+                                          const char *server,
+                                          const char *username,
+                                          const char *repo_id,
+                                          const char *new_name);
 
 void
-seaf_repo_manager_flush_current_repo_journals (SeafRepoManager *mgr);
+seaf_repo_manager_set_repo_list_fetched (SeafRepoManager *mgr,
+                                         const char *server,
+                                         const char *user);
 
 void
-seaf_repo_manager_set_current_repo_list_fetched (SeafRepoManager *mgr);
+seaf_repo_manager_set_account_all_repos_loaded (SeafRepoManager *mgr,
+                                                const char *server,
+                                                const char *username);
 
 void
-seaf_repo_manager_set_current_account_all_repos_loaded (SeafRepoManager *mgr);
+seaf_repo_manager_flush_account_repo_journals (SeafRepoManager *mgr,
+                                               const char *server,
+                                               const char *username);
 
 void
 seaf_repo_manager_set_account_server_disconnected (SeafRepoManager *mgr,
+                                                   const char *server,
+                                                   const char *username,
                                                    gboolean server_disconnected);
 
 struct _SeafAccountSpace {
@@ -482,6 +520,8 @@ seaf_repo_manager_create_placeholders (SeafRepo* repo);
 
 char *
 seaf_repo_manager_get_display_name_by_repo_name (SeafRepoManager *mgr,
+                                                 const char *server,
+                                                 const char *user,
                                                  const char *repo_name);
 
 void
@@ -502,7 +542,10 @@ int
 seaf_repo_manager_clear_enc_repo_passwd (const char *repo_id);
 
 char *
-seaf_repo_manager_get_first_repo_token_from_curr_repos (SeafRepoManager *mgr, char **repo_token);
+seaf_repo_manager_get_first_repo_token_from_account_repos (SeafRepoManager *mgr,
+                                                           const char *server,
+                                                           const char *username,
+                                                           char **repo_token);
 
 json_t *
 seaf_repo_manager_get_account_by_repo_id (SeafRepoManager *mgr, const char *repo_id);

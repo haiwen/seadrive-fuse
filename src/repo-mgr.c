@@ -25,9 +25,12 @@ struct _SeafRepoManagerPriv {
     pthread_rwlock_t lock;
 
     /* Cache of repos for current account. */
-    GHashTable *curr_repos;
-    GHashTable *name_to_repo;
-    SeafAccount *curr_account;
+    // The key is 'server_username', the value is server and user of account.
+    GHashTable *accounts;
+    // The key is repo id, the value is repo info.
+    GHashTable *repo_infos;
+    // The key is 'server_username', the value a hash table of name_to_repo.
+    GHashTable *repo_names;
     pthread_rwlock_t account_lock;
 
     sqlite3    *db;
@@ -880,9 +883,6 @@ include_invisible_perm (GList *perms)
 {
     GList *ptr;
     FolderPerm *perm;
-    char *folder;
-    int len;
-    char *permission = NULL;
 
     for (ptr = perms; ptr; ptr = ptr->next) {
         perm = ptr->data;
@@ -984,6 +984,8 @@ seaf_repo_free (SeafRepo *repo)
         g_free (repo->repo_uname);
     if (repo->worktree)
         g_free (repo->worktree);
+    g_free (repo->server);
+    g_free (repo->user);
     g_free (repo);
 }
 
@@ -1126,10 +1128,6 @@ seaf_repo_set_worktree (SeafRepo *repo, const char *repo_uname)
     if (repo->repo_uname)
         g_free (repo->repo_uname);
     repo->repo_uname = g_strdup (repo_uname);
-
-    if (repo->worktree)
-        g_free (repo->worktree);
-    repo->worktree = g_build_path ("/", seaf->mount_point, repo_uname, NULL);
 }
 
 static void
@@ -1234,17 +1232,12 @@ out:
 }
 
 static char *
-build_conflict_path (const char *path, time_t t)
+build_conflict_path (const char *user, const char *path, time_t t)
 {
     char time_buf[64];
     char *copy = g_strdup (path);
     GString *conflict_path = g_string_new (NULL);
-    SeafAccount *account;
     char *dot, *ext;
-
-    account = seaf_repo_manager_get_current_account (seaf->repo_mgr);
-    if (!account)
-        goto out;
 
     strftime(time_buf, 64, "%Y-%m-%d-%H-%M-%S", localtime(&t));
 
@@ -1254,15 +1247,13 @@ build_conflict_path (const char *path, time_t t)
         *dot = '\0';
         ext = dot + 1;
         g_string_printf (conflict_path, "%s (SFConflict %s %s).%s",
-                         copy, account->username, time_buf, ext);
+                         copy, user, time_buf, ext);
     } else {
         g_string_printf (conflict_path, "%s (SFConflict %s %s)",
-                         copy, account->username, time_buf);
+                         copy, user, time_buf);
     }
 
-out:
     g_free (copy);
-    seaf_account_free (account);
     return g_string_free (conflict_path, FALSE);
 }
 
@@ -1476,7 +1467,7 @@ check_cached_file_status_cb (const char *repo_id,
                           (gint64)st->st_mtime, (gint64)st->st_size,
                           attrs.mtime, attrs.size,
                           tree_st.mtime, tree_st.size);
-            char *conflict_path = build_conflict_path (file_path, st->st_mtime);
+            char *conflict_path = build_conflict_path (repo->user, file_path, st->st_mtime);
             if (conflict_path) {
                 seaf_message ("Generating conflict file %s in repo %s.\n",
                               conflict_path, repo_id);
@@ -1601,14 +1592,17 @@ seaf_repo_manager_new (SeafileSession *seaf)
     mgr->priv->group_perms = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, NULL);
     pthread_mutex_init (&mgr->priv->perm_lock, NULL);
 
-    mgr->priv->curr_account = g_new0 (SeafAccount, 1);
-    mgr->priv->curr_repos = g_hash_table_new_full (g_str_hash, g_str_equal,
-                                                   g_free,
-                                                   (GDestroyNotify)repo_info_free);
-    /* Only free repo info once, since they're shared between the two hash tables. */
-    mgr->priv->name_to_repo = g_hash_table_new_full (g_str_hash, g_str_equal,
-                                                     g_free, NULL);
+    mgr->priv->accounts = g_hash_table_new_full (g_str_hash, g_str_equal,
+                                                 g_free,
+                                                 (GDestroyNotify)seaf_account_free);
     pthread_rwlock_init (&mgr->priv->account_lock, NULL);
+
+    mgr->priv->repo_infos = g_hash_table_new_full (g_str_hash, g_str_equal,
+                                                    g_free,
+                                                    (GDestroyNotify)repo_info_free);
+
+    mgr->priv->repo_names = g_hash_table_new_full (g_str_hash, g_str_equal,
+                                                   g_free, (GDestroyNotify)g_hash_table_destroy);
 
     return mgr;
 }
@@ -2005,6 +1999,10 @@ seaf_repo_manager_get_repo (SeafRepoManager *manager, const gchar *id)
 {
     SeafRepo *repo, *res = NULL;
 
+    if (!id) {
+        return NULL;
+    }
+
     if (pthread_rwlock_rdlock (&manager->priv->lock) < 0) {
         seaf_warning ("[repo mgr] failed to lock repo cache.\n");
         return NULL;
@@ -2210,6 +2208,45 @@ load_branch_cb (sqlite3_stmt *stmt, void *vrepo)
     return FALSE;
 }
 
+static gboolean
+load_account_info_cb (sqlite3_stmt *stmt, void *vrepo)
+{
+    SeafRepo *repo = vrepo;
+    const char *server, *user;
+
+    server = (const char *)sqlite3_column_text(stmt, 0);
+    user = (const char *)sqlite3_column_text(stmt, 1);
+
+    repo->server = g_strdup (server);
+    repo->user = g_strdup (user);
+
+    return FALSE;
+}
+
+static int
+load_repo_account_info (SeafRepoManager *manager, SeafRepo *repo)
+{
+    sqlite3 *db = manager->priv->db;
+    char sql[256];
+    int n;
+
+    pthread_mutex_lock (&manager->priv->db_lock);
+
+    snprintf (sql, sizeof(sql),
+              "SELECT server, username FROM AccountRepos WHERE repo_id='%s'",
+              repo->id);
+    n = sqlite_foreach_selected_row (db, sql, load_account_info_cb, repo);
+    if (n < 0) {
+        pthread_mutex_unlock (&manager->priv->db_lock);
+        return -1;
+    }
+
+    pthread_mutex_unlock (&manager->priv->db_lock);
+
+    return 0;
+
+}
+
 static SeafRepo *
 load_repo (SeafRepoManager *manager, const char *repo_id)
 {
@@ -2239,6 +2276,8 @@ load_repo (SeafRepoManager *manager, const char *repo_id)
     }
 
     load_repo_passwd (manager, repo);
+
+    load_repo_account_info (manager, repo);
 
     char *value;
 
@@ -2766,9 +2805,6 @@ typedef struct _LoadRepoInfoRes {
     GHashTable *name_to_repo;
 } LoadRepoInfoRes;
 
-static const char **
-get_last_repo_type_string_table (char *sync_root_path);
-
 static RepoType
 repo_type_from_display_name (const char *display_name)
 {
@@ -2796,7 +2832,6 @@ load_repo_info_cb (sqlite3_stmt *stmt, void *data)
 {
     LoadRepoInfoRes *res = data;
     GHashTable *repos = res->repos;
-    GHashTable *name_to_repo = res->name_to_repo;
     const char *repo_id, *name, *display_name;
     gint64 mtime;
     SeafRepo* repo = NULL;
@@ -2822,7 +2857,6 @@ load_repo_info_cb (sqlite3_stmt *stmt, void *data)
     }
 
     g_hash_table_insert (repos, g_strdup(repo_id), info);
-    g_hash_table_insert (name_to_repo, g_strdup(display_name), info);
 
     return TRUE;
 }
@@ -2831,12 +2865,10 @@ static int
 load_current_account_repo_info (SeafRepoManager *mgr,
                                 const char *server,
                                 const char *username,
-                                GHashTable *repos,
-                                GHashTable *name_to_repo)
+                                GHashTable *repos)
 {
     LoadRepoInfoRes res;
     res.repos = repos;
-    res.name_to_repo = name_to_repo;
 
     pthread_mutex_lock (&mgr->priv->db_lock);
 
@@ -2888,7 +2920,7 @@ load_repo_fs_worker (gpointer data, gpointer user_data)
 static void *
 load_repo_file_systems_thread (void *vdata)
 {
-    SeafRepoManager *mgr = vdata;
+    AccountInfo *account_info = vdata;
     GList *info_list, *ptr;
     RepoInfo *info;
     SeafRepo *repo;
@@ -2901,14 +2933,14 @@ load_repo_file_systems_thread (void *vdata)
                               NULL);
     if (!pool) {
         seaf_warning ("Failed to create thread pool.\n");
-        return NULL;
+        goto out;
     }
 
-    info_list = seaf_repo_manager_get_current_repos (mgr);
+    info_list = seaf_repo_manager_get_account_repos (seaf->repo_mgr, account_info->server, account_info->username);
     for (ptr = info_list; ptr; ptr = ptr->next) {
         info = (RepoInfo *)ptr->data;
 
-        repo = seaf_repo_manager_get_repo (mgr, info->id);
+        repo = seaf_repo_manager_get_repo (seaf->repo_mgr, info->id);
         if (!repo) {
             continue;
         }
@@ -2927,6 +2959,9 @@ load_repo_file_systems_thread (void *vdata)
     /*     file_cache_mgr_traverse_path (seaf->file_cache_mgr, info->id, "", */
     /*                                   update_file_sync_status_cb, NULL, NULL); */
     /* } */
+
+out:
+    account_info_free (account_info);
     return NULL;
 }
 
@@ -2944,73 +2979,125 @@ create_unique_id (const char *server, const char *username)
     return id;
 }
 
-int
-seaf_repo_manager_switch_current_account (SeafRepoManager *mgr,
-                                          const char *server,
-                                          const char *username,
-                                          const char *token,
-                                          gboolean is_pro)
+void
+account_info_free (AccountInfo *info)
 {
-    SeafAccount *account = mgr->priv->curr_account;
-    GHashTable *new_repos, *new_name_to_repo;
+    if (!info)
+        return;
+    g_free (info->server);
+    g_free (info->username);
+    g_free (info);
+}
 
-    seaf_message ("switching account to %s %s.\n", server, username);
+AccountInfo *
+seaf_repo_manager_get_account_info_by_name  (SeafRepoManager *mgr,
+                                             const char *name)
+{
+    GHashTableIter iter;
+    gpointer key, value;
+    SeafAccount *account = NULL;
+    AccountInfo *account_info = NULL;
 
-    if (g_strcmp0 (server, account->server) == 0 &&
-        g_strcmp0 (username, account->username) == 0)
-        return 0;
+    pthread_rwlock_rdlock (&mgr->priv->account_lock);
 
-    new_repos = g_hash_table_new_full (g_str_hash, g_str_equal, g_free,
-                                       (GDestroyNotify)repo_info_free);
-    new_name_to_repo = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, NULL);
-
-    if (load_current_account_repo_info (mgr, server, username,
-                                        new_repos, new_name_to_repo) < 0) {
-        g_hash_table_destroy (new_repos);
-        g_hash_table_destroy (new_name_to_repo);
-        return -1;
-    }
-
-    pthread_rwlock_wrlock (&mgr->priv->account_lock);
-
-    g_free (account->server);
-    g_free (account->username);
-    g_free (account->token);
-    g_free (account->fileserver_addr);
-    g_free (account->unique_id);
-
-    account->server = g_strdup(server);
-    account->username = g_strdup(username);
-    account->token = g_strdup(token);
-    account->fileserver_addr = parse_fileserver_addr(server);
-    account->is_pro = is_pro;
-    account->unique_id = create_unique_id (server, username);
-
-    if (mgr->priv->curr_repos)
-        g_hash_table_destroy (mgr->priv->curr_repos);
-    if (mgr->priv->name_to_repo)
-        g_hash_table_destroy (mgr->priv->name_to_repo);
-    mgr->priv->curr_repos = new_repos;
-    mgr->priv->name_to_repo = new_name_to_repo;
-
-    account->repo_list_fetched = FALSE;
-    account->all_repos_loaded = FALSE;
-
-    if (g_hash_table_size (new_repos) != 0) {
-        account->repo_list_fetched = TRUE;
+    g_hash_table_iter_init (&iter, mgr->priv->accounts);
+    while (g_hash_table_iter_next (&iter, &key, &value)) {
+        account = (SeafAccount *)value;
+        if (g_strcmp0 (account->name, name) == 0) {
+            account_info = g_new0 (AccountInfo, 1);
+            account_info->server = g_strdup (account->server);
+            account_info->username = g_strdup (account->username);
+            break;
+        }
     }
 
     pthread_rwlock_unlock (&mgr->priv->account_lock);
 
-    /* Reset check_repo_list time and access_fs_time after account switching. */
+    return account_info;
+}
+
+static void
+add_repo_info (SeafRepoManager *mgr, char *account_key, GHashTable *new_repos)
+{
+    GHashTable *new_name_to_repo;
+    RepoInfo *info, *copy;
+    GHashTableIter iter;
+    gpointer key, value;
+    new_name_to_repo = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, NULL);
+
+    g_hash_table_iter_init (&iter, new_repos);
+    while (g_hash_table_iter_next (&iter, &key, &value)) {
+        info = value;
+        copy = repo_info_copy (info);
+        g_hash_table_insert (mgr->priv->repo_infos, g_strdup(copy->id), copy);
+        g_hash_table_insert (new_name_to_repo, g_strdup(copy->display_name), copy);
+    }
+
+    g_hash_table_insert (mgr->priv->repo_names, g_strdup(account_key), new_name_to_repo);
+
+    return;
+}
+
+int
+seaf_repo_manager_add_account (SeafRepoManager *mgr,
+                               const char *server,
+                               const char *username,
+                               const char *token,
+                               const char *name,
+                               gboolean is_pro)
+{
+    SeafAccount *account = NULL;
+    SeafAccount *new_account = NULL;
+    GHashTable *new_repos;
+
+    seaf_message ("adding account %s %s %s.\n", server, username, name);
+
+    account = seaf_repo_manager_get_account (seaf->repo_mgr, server, username);
+    if (account) {
+        seaf_account_free (account);
+        return 0;
+    }
+
+    new_repos = g_hash_table_new_full (g_str_hash, g_str_equal, g_free,
+                                       (GDestroyNotify)repo_info_free);
+
+    if (load_current_account_repo_info (mgr, server, username,
+                                        new_repos ) < 0) {
+        g_hash_table_destroy (new_repos);
+        return -1;
+    }
+
+    char *account_key = g_strconcat (server, "_", username, NULL);
+
+    new_account = g_new0 (SeafAccount, 1);
+    new_account->server = g_strdup(server);
+    new_account->username = g_strdup(username);
+    new_account->token = g_strdup(token);
+    new_account->name = g_strdup(name);
+    new_account->fileserver_addr = parse_fileserver_addr(server);
+    new_account->is_pro = is_pro;
+    new_account->unique_id = create_unique_id (server, username);
+    new_account->repo_list_fetched = FALSE;
+    new_account->all_repos_loaded = FALSE;
+
+    pthread_rwlock_wrlock (&mgr->priv->account_lock);
+    add_repo_info (mgr, account_key, new_repos);
+    g_hash_table_insert (mgr->priv->accounts, g_strdup(account_key), new_account);
+    pthread_rwlock_unlock (&mgr->priv->account_lock);
+    g_hash_table_destroy (new_repos);
+    g_free (account_key);
+
     seaf->last_check_repo_list_time = 0;
     seaf->last_access_fs_time = 0;
 
     /* Update current repo list immediately after account switch. */
-    seaf_sync_manager_update_repo_list (seaf->sync_mgr);
+    seaf_sync_manager_update_account_repo_list (seaf->sync_mgr, server, username);
 
     pthread_t tid;
-    int rc = pthread_create (&tid, NULL, load_repo_file_systems_thread, mgr);
+    AccountInfo *account_info = g_new0(AccountInfo, 1);
+    account_info->server = g_strdup (server);
+    account_info->username = g_strdup (username);
+    int rc = pthread_create (&tid, NULL, load_repo_file_systems_thread, account_info);
     if (rc != 0) {
         seaf_warning ("Failed to start load repo fs thread: %s\n", strerror(rc));
     }
@@ -3018,108 +3105,181 @@ seaf_repo_manager_switch_current_account (SeafRepoManager *mgr,
     return 0;
 }
 
+static
 SeafAccount *
-seaf_repo_manager_get_current_account (SeafRepoManager *mgr)
+copy_account (SeafAccount *account)
 {
-    SeafAccount *curr = mgr->priv->curr_account, *ret;
+    SeafAccount *ret = g_new0 (SeafAccount, 1);
+    ret->server = g_strdup(account->server);
+    ret->username = g_strdup(account->username);
+    ret->token = g_strdup(account->token);
+    ret->name = g_strdup (account->name);
+    ret->fileserver_addr = g_strdup(account->fileserver_addr);
+    ret->is_pro = account->is_pro;
+    ret->unique_id = g_strdup(account->unique_id);
+    ret->repo_list_fetched = account->repo_list_fetched;
+    ret->all_repos_loaded = account->all_repos_loaded;
+    ret->server_disconnected = account->server_disconnected;
+
+    return ret;
+}
+
+SeafAccount *
+seaf_repo_manager_get_account (SeafRepoManager *mgr,
+                               const char *server,
+                               const char *username)
+{
+    SeafAccount *account = NULL, *ret = NULL;
+
+    char *key = g_strconcat (server, "_", username, NULL);
 
     pthread_rwlock_rdlock (&mgr->priv->account_lock);
 
-    if (!curr->server) {
-        ret = NULL;
+    account =  g_hash_table_lookup (mgr->priv->accounts, key);
+    if (!account) {
         goto out;
     }
 
-    ret = g_new0 (SeafAccount, 1);
-    ret->server = g_strdup(curr->server);
-    ret->username = g_strdup(curr->username);
-    ret->token = g_strdup(curr->token);
-    ret->fileserver_addr = g_strdup(curr->fileserver_addr);
-    ret->is_pro = curr->is_pro;
-    ret->unique_id = g_strdup(curr->unique_id);
-    ret->repo_list_fetched = curr->repo_list_fetched;
-    ret->all_repos_loaded = curr->all_repos_loaded;
-    ret->server_disconnected = curr->server_disconnected;
+    ret = copy_account (account);
 
 out:
+    pthread_rwlock_unlock (&mgr->priv->account_lock);
+    g_free (key);
+
+    return ret;
+}
+
+gboolean
+seaf_repo_manager_account_exists (SeafRepoManager *mgr,
+                                  const char *server,
+                                  const char *username)
+{
+    SeafAccount *account = NULL;
+    gboolean exists = TRUE;
+
+    char *key = g_strconcat (server, "_", username, NULL);
+
+    pthread_rwlock_rdlock (&mgr->priv->account_lock);
+
+    account =  g_hash_table_lookup (mgr->priv->accounts, key);
+    if (!account) {
+        exists = FALSE;
+        goto out;
+    }
+
+out:
+    pthread_rwlock_unlock (&mgr->priv->account_lock);
+    g_free (key);
+
+    return exists;
+}
+
+GList *
+seaf_repo_manager_get_account_list (SeafRepoManager *mgr)
+{
+    GList *ret = NULL;
+    GHashTableIter iter;
+    gpointer key, value;
+    SeafAccount *account = NULL;
+
+    pthread_rwlock_rdlock (&mgr->priv->account_lock);
+
+    g_hash_table_iter_init (&iter, mgr->priv->accounts);
+    while (g_hash_table_iter_next (&iter, &key, &value)) {
+        account = copy_account ((SeafAccount *)value);
+        ret = g_list_prepend (ret, account);
+    }
+
     pthread_rwlock_unlock (&mgr->priv->account_lock);
 
     return ret;
 }
 
 gboolean
-seaf_repo_manager_current_account_is_pro (SeafRepoManager *mgr)
+seaf_repo_manager_account_is_pro (SeafRepoManager *mgr,
+                                  const char *server,
+                                  const char *user)
 {
-    gboolean ret;
+    gboolean ret = FALSE;
 
-    pthread_rwlock_rdlock (&mgr->priv->account_lock);
+    SeafAccount *account = seaf_repo_manager_get_account (mgr, server, user);
+    if (account) {
+        ret = account->is_pro;
 
-    ret = mgr->priv->curr_account->is_pro;
-
-    pthread_rwlock_unlock (&mgr->priv->account_lock);
+    }
+    seaf_account_free (account);
 
     return ret;
 }
 
 void
-seaf_repo_manager_set_current_repo_list_fetched (SeafRepoManager *mgr)
+seaf_repo_manager_set_repo_list_fetched (SeafRepoManager *mgr,
+                                         const char *server,
+                                         const char *username)
 {
+    SeafAccount *account = NULL;
+
+    char *key = g_strconcat (server, "_", username, NULL);
+
     pthread_rwlock_wrlock (&mgr->priv->account_lock);
 
-    mgr->priv->curr_account->repo_list_fetched = TRUE;
+    account =  g_hash_table_lookup (mgr->priv->accounts, key);
+    if (!account) {
+        goto out;
+    }
 
+    account->repo_list_fetched = TRUE;
+
+out:
     pthread_rwlock_unlock (&mgr->priv->account_lock);
+    g_free (key);
 }
 
 void
-seaf_repo_manager_set_current_account_all_repos_loaded (SeafRepoManager *mgr)
+seaf_repo_manager_set_account_all_repos_loaded (SeafRepoManager *mgr,
+                                                const char *server,
+                                                const char *username)
 {
-    pthread_rwlock_wrlock (&mgr->priv->account_lock);
+    SeafAccount *account = NULL;
 
-    mgr->priv->curr_account->all_repos_loaded = TRUE;
-
-    pthread_rwlock_unlock (&mgr->priv->account_lock);
-}
-
-int
-seaf_repo_manager_update_current_account (SeafRepoManager *mgr,
-                                          const char *server,
-                                          const char *username,
-                                          const char *token)
-{
-    SeafAccount *account = mgr->priv->curr_account;
+    char *key = g_strconcat (server, "_", username, NULL);
 
     pthread_rwlock_wrlock (&mgr->priv->account_lock);
 
-    if (strcmp (server, account->server) != 0) {
-        g_free (account->server);
-        account->server = g_strdup(server);
+    account =  g_hash_table_lookup (mgr->priv->accounts, key);
+    if (!account) {
+        goto out;
     }
 
-    if (strcmp (username, account->username) != 0) {
-        g_free (account->username);
-        account->username = g_strdup(username);
-    }
+    account->all_repos_loaded = TRUE;
 
-    if (strcmp (token, account->token) != 0) {
-        g_free (account->token);
-        account->token = g_strdup(token);
-    }
-
+out:
     pthread_rwlock_unlock (&mgr->priv->account_lock);
-
-    return 0;
+    g_free (key);
 }
 
 void
 seaf_repo_manager_set_account_server_disconnected (SeafRepoManager *mgr,
+                                                   const char *server,
+                                                   const char *username,
                                                    gboolean server_disconnected)
 {
+    SeafAccount *account = NULL;
+
+    char *key = g_strconcat (server, "_", username, NULL);
+
     pthread_rwlock_wrlock (&mgr->priv->account_lock);
 
-    mgr->priv->curr_account->server_disconnected = server_disconnected;
+    account =  g_hash_table_lookup (mgr->priv->accounts, key);
+    if (!account) {
+        goto out;
+    }
 
+    account->server_disconnected = server_disconnected;
+
+out:
     pthread_rwlock_unlock (&mgr->priv->account_lock);
+    g_free (key);
 }
 
 static int
@@ -3204,36 +3364,38 @@ int
 seaf_repo_manager_delete_account (SeafRepoManager *mgr,
                                   const char *server,
                                   const char *username,
-                                  gboolean remove_cache)
+                                  gboolean remove_cache,
+                                  GError **error)
 {
-    SeafAccount *account;
+    SeafAccount *account = NULL;
+    GHashTable *name_to_repo = NULL;
+    GHashTableIter iter;
+    gpointer key, value;
+    RepoInfo *info;
     int ret = 0;
+
+    char *account_key = g_strconcat (server, "_", username, NULL);
 
     pthread_rwlock_wrlock (&mgr->priv->account_lock);
 
-    account = mgr->priv->curr_account;
-
-    //if the deleted account is the current account, we unwatch sync root.
-    if (g_strcmp0 (account->server, server) == 0 &&
-        g_strcmp0 (account->username, username) == 0) {
-
-        g_hash_table_remove_all (mgr->priv->curr_repos);
-        g_hash_table_remove_all (mgr->priv->name_to_repo);
-
-        g_free (account->server);
-        g_free (account->username);
-        g_free (account->token);
-        g_free (account->fileserver_addr);
-        g_free (account->unique_id);
-
-        memset (account, 0, sizeof(*account));
-    } else if (!account->server && !account->username) {
-        //the account has been logged out, we disconnect sync root here.
-    } else {
-        seaf_message ("Don't support deleting non-current accounts.\n");
+    account =  g_hash_table_lookup (mgr->priv->accounts, account_key);
+    if  (!account) {
         pthread_rwlock_unlock (&mgr->priv->account_lock);
-        return -1;
+        g_free (account_key);
+        return 0;
     }
+
+    name_to_repo = g_hash_table_lookup (mgr->priv->repo_names, account_key);
+
+    g_hash_table_iter_init (&iter, name_to_repo);
+    while (g_hash_table_iter_next (&iter, &key, &value)) {
+        info = value;
+        g_hash_table_remove (mgr->priv->repo_infos, info->id);
+    }
+
+    g_hash_table_remove (mgr->priv->repo_names, account_key);
+
+    g_hash_table_remove (mgr->priv->accounts, account_key);
 
     pthread_rwlock_unlock (&mgr->priv->account_lock);
 
@@ -3241,25 +3403,34 @@ seaf_repo_manager_delete_account (SeafRepoManager *mgr,
         ret = -1;
     }
 
+    g_free (account_key);
     return ret;
 }
 
 GList *
-seaf_repo_manager_get_current_repos (SeafRepoManager *mgr)
+seaf_repo_manager_get_account_repos (SeafRepoManager *mgr,
+                                     const char *server,
+                                     const char *user)
 {
     GList *ret = NULL;
+    GHashTable *name_to_repo = NULL;
     GHashTableIter iter;
     gpointer key, value;
     RepoInfo *info, *copy;
+    char *account_key = NULL;
+
+    account_key = g_strconcat (server, "_", user, NULL);
 
     pthread_rwlock_rdlock (&mgr->priv->account_lock);
 
-    if (!mgr->priv->curr_account->server) {
+    name_to_repo = g_hash_table_lookup (mgr->priv->repo_names, account_key);
+    if (!name_to_repo) {
         pthread_rwlock_unlock (&mgr->priv->account_lock);
+        g_free (account_key);
         return NULL;
     }
 
-    g_hash_table_iter_init (&iter, mgr->priv->curr_repos);
+    g_hash_table_iter_init (&iter, name_to_repo);
     while (g_hash_table_iter_next (&iter, &key, &value)) {
         info = value;
         copy = repo_info_copy (info);
@@ -3274,22 +3445,32 @@ seaf_repo_manager_get_current_repos (SeafRepoManager *mgr)
 }
 
 GList *
-seaf_repo_manager_get_current_repo_ids (SeafRepoManager *mgr)
+seaf_repo_manager_get_account_repo_ids (SeafRepoManager *mgr,
+                                        const char *server,
+                                        const char *user)
 {
     GList *ret = NULL;
+    GHashTable *name_to_repo = NULL;
     GHashTableIter iter;
     gpointer key, value;
+    RepoInfo *info;
+    char *account_key = NULL;
+
+    account_key = g_strconcat (server, "_", user, NULL);
 
     pthread_rwlock_rdlock (&mgr->priv->account_lock);
 
-    if (!mgr->priv->curr_account->server) {
+    name_to_repo = g_hash_table_lookup (mgr->priv->repo_names, account_key);
+    if (!name_to_repo) {
         pthread_rwlock_unlock (&mgr->priv->account_lock);
+        g_free (account_key);
         return NULL;
     }
 
-    g_hash_table_iter_init (&iter, mgr->priv->curr_repos);
+    g_hash_table_iter_init (&iter, name_to_repo);
     while (g_hash_table_iter_next (&iter, &key, &value)) {
-        ret = g_list_prepend (ret, g_strdup ((char *)key));
+        info = value;
+        ret = g_list_prepend (ret, g_strdup (info->id));
     }
 
     pthread_rwlock_unlock (&mgr->priv->account_lock);
@@ -3299,45 +3480,62 @@ seaf_repo_manager_get_current_repo_ids (SeafRepoManager *mgr)
 
 RepoInfo *
 seaf_repo_manager_get_repo_info_by_name (SeafRepoManager *mgr,
+                                         const char *server,
+                                         const char *user,
                                          const char *name)
 {
+    GHashTable *name_to_repo = NULL;
     RepoInfo *info, *ret = NULL;
+    char *account_key = NULL;
 
-    pthread_rwlock_rdlock (&mgr->priv->account_lock);
-
-    if (!mgr->priv->curr_account->server) {
-        pthread_rwlock_unlock (&mgr->priv->account_lock);
+    if (!seaf_repo_manager_account_exists (mgr, server, user)) {
         return NULL;
     }
 
-    info = g_hash_table_lookup (mgr->priv->name_to_repo, name);
+    account_key = g_strconcat (server, "_", user, NULL);
+
+    pthread_rwlock_rdlock (&mgr->priv->account_lock);
+
+    name_to_repo = g_hash_table_lookup (mgr->priv->repo_names, account_key);
+
+    info = g_hash_table_lookup (name_to_repo, name);
     if (info)
         ret = repo_info_copy (info);
 
     pthread_rwlock_unlock (&mgr->priv->account_lock);
+
+    g_free (account_key);
 
     return ret;
 }
 
 char *
 seaf_repo_manager_get_repo_id_by_name (SeafRepoManager *mgr,
+                                       const char *server,
+                                       const char *user,
                                        const char *name)
 {
+    GHashTable *name_to_repo = NULL;
     RepoInfo *info;
     char *repo_id = NULL;
+    char *account_key = NULL;
 
-    pthread_rwlock_rdlock (&mgr->priv->account_lock);
-
-    if (!mgr->priv->curr_account->server) {
-        pthread_rwlock_unlock (&mgr->priv->account_lock);
+    if (!seaf_repo_manager_account_exists (mgr, server, user)) {
         return NULL;
     }
 
-    info = g_hash_table_lookup (mgr->priv->name_to_repo, name);
+    account_key = g_strconcat (server, "_", user, NULL);
+
+    pthread_rwlock_rdlock (&mgr->priv->account_lock);
+
+    name_to_repo = g_hash_table_lookup (mgr->priv->repo_names, account_key);
+    info = g_hash_table_lookup (name_to_repo, name);
     if (info)
         repo_id = g_strdup (info->id);
 
     pthread_rwlock_unlock (&mgr->priv->account_lock);
+
+    g_free (account_key);
 
     return repo_id;
 }
@@ -3351,12 +3549,7 @@ seaf_repo_manager_get_repo_display_name (SeafRepoManager *mgr,
 
     pthread_rwlock_rdlock (&mgr->priv->account_lock);
 
-    if (!mgr->priv->curr_account->server) {
-        pthread_rwlock_unlock (&mgr->priv->account_lock);
-        return NULL;
-    }
-
-    info = g_hash_table_lookup (mgr->priv->curr_repos, id);
+    info = g_hash_table_lookup (mgr->priv->repo_infos, id);
     if (info)
         display_name = g_strdup(info->display_name);
 
@@ -3450,18 +3643,18 @@ update_repo_to_account (sqlite3 *db,
 }
 
 int
-seaf_repo_manager_set_if_current_repo_unsyncable (SeafRepoManager *mgr,
-                                                  const char *repo_id,
-                                                  gboolean perm_unsyncable)
+seaf_repo_manager_set_if_repo_unsyncable (SeafRepoManager *mgr,
+                                          const char *repo_id,
+                                          gboolean perm_unsyncable)
 {
-    GHashTable *curr_repos = NULL;
+    GHashTable *repo_infos = NULL;
     RepoInfo *info = NULL;
 
     pthread_rwlock_wrlock (&mgr->priv->account_lock);
 
-    curr_repos = mgr->priv->curr_repos;
+    repo_infos = mgr->priv->repo_infos;
 
-    info = g_hash_table_lookup (curr_repos, repo_id);
+    info = g_hash_table_lookup (repo_infos, repo_id);
     if (info)
         info->perm_unsyncable = perm_unsyncable;
 
@@ -3471,40 +3664,39 @@ seaf_repo_manager_set_if_current_repo_unsyncable (SeafRepoManager *mgr,
 }
 
 void
-seaf_repo_manager_remove_current_repo (SeafRepoManager *mgr,
-                                       const char *repo_id)
+seaf_repo_manager_remove_account_repo (SeafRepoManager *mgr,
+                                       const char *repo_id,
+                                       const char *server,
+                                       const char *user)
 {
-    SeafAccount *account = mgr->priv->curr_account;
-    GHashTable *curr_repos = NULL, *name_to_repo = NULL;
-    char *server = NULL, *username = NULL;
+    GHashTable *repo_infos = NULL, *name_to_repo = NULL;
+    char *account_key = NULL;
     RepoInfo *info = NULL, *copy = NULL;
     SeafRepo *repo = NULL;
 
-    pthread_rwlock_wrlock (&mgr->priv->account_lock);
-
-    if (!account->server) {
-        pthread_rwlock_unlock (&mgr->priv->account_lock);
+    if (!seaf_repo_manager_account_exists (mgr, server, user)) {
         return;
     }
 
-    curr_repos = mgr->priv->curr_repos;
-    name_to_repo = mgr->priv->name_to_repo;
+    account_key = g_strconcat (server, "_", user, NULL);
 
-    info = g_hash_table_lookup (curr_repos, repo_id);
+    pthread_rwlock_wrlock (&mgr->priv->account_lock);
+
+    repo_infos = mgr->priv->repo_infos;
+    name_to_repo = g_hash_table_lookup (mgr->priv->repo_names, account_key);
+
+    info = g_hash_table_lookup (repo_infos, repo_id);
     if (info) {
         copy = repo_info_copy (info);
-        g_hash_table_remove (curr_repos, repo_id);
+        g_hash_table_remove (repo_infos, repo_id);
         g_hash_table_remove (name_to_repo, copy->display_name);
     }
-
-    server = g_strdup(account->server);
-    username = g_strdup(account->username);
 
     pthread_rwlock_unlock (&mgr->priv->account_lock);
 
     pthread_mutex_lock (&mgr->priv->db_lock);
 
-    remove_repo_from_account (mgr->priv->db, server, username, repo_id);
+    remove_repo_from_account (mgr->priv->db, server, user, repo_id);
 
     pthread_mutex_unlock (&mgr->priv->db_lock);
 
@@ -3519,53 +3711,61 @@ seaf_repo_manager_remove_current_repo (SeafRepoManager *mgr,
         http_tx_manager_cancel_task (seaf->http_tx_mgr, repo_id,
                                      HTTP_TASK_TYPE_UPLOAD);
         seaf_repo_unref (repo);
-     }
-     repo_info_free (copy);
-     g_free (server);
-     g_free (username);
+    }
+    g_free (account_key);
+    repo_info_free (copy);
 
     return;
 }
 
 int
-seaf_repo_manager_update_current_repos (SeafRepoManager *mgr,
+seaf_repo_manager_update_account_repos (SeafRepoManager *mgr,
+                                        const char *server,
+                                        const char *username,
                                         GHashTable *server_repos,
                                         GList **added,
                                         GList **removed)
 {
-    SeafAccount *account = mgr->priv->curr_account;
-    GHashTable *curr_repos, *name_to_repo;
+    GHashTable *repo_infos, *name_to_repo;
+    GList *account_repos = NULL;
     GHashTableIter iter;
     gpointer key, value;
     char *repo_id;
     RepoInfo *info, *copy, *server_info;
     GList *ptr;
-    char *server, *username, *display_name;
+    char *display_name;
+    char *account_key = NULL;
     SeafRepo *repo;
     gboolean need_update;
     GList *updated = NULL;
 
-    pthread_rwlock_wrlock (&mgr->priv->account_lock);
-
-    if (!account->server) {
-        pthread_rwlock_unlock (&mgr->priv->account_lock);
+    if (!seaf_repo_manager_account_exists (mgr, server, username)) {
         return 0;
     }
 
-    curr_repos = mgr->priv->curr_repos;
-    name_to_repo = mgr->priv->name_to_repo;
+    account_key = g_strconcat (server, "_", username, NULL);
 
-    g_hash_table_iter_init (&iter, curr_repos);
+    pthread_rwlock_wrlock (&mgr->priv->account_lock);
+
+    repo_infos = mgr->priv->repo_infos;
+    name_to_repo = g_hash_table_lookup (mgr->priv->repo_names, account_key);
+
+    g_hash_table_iter_init (&iter, name_to_repo);
     while (g_hash_table_iter_next (&iter, &key, &value)) {
-        repo_id = key;
         info = value;
+        account_repos = g_list_prepend (account_repos, info);
+    }
+
+    for (ptr = account_repos; ptr; ptr = ptr->next) {
+        info = ptr->data;
+        repo_id = info->id;
 
         server_info = g_hash_table_lookup (server_repos, repo_id);
         if (!server_info) {
             /* Remove local repos that don't exist in server_repos. */
             copy = repo_info_copy (info);
             *removed = g_list_prepend (*removed, copy);
-            g_hash_table_iter_remove (&iter);
+            g_hash_table_remove (repo_infos, repo_id);
             g_hash_table_remove (name_to_repo, copy->display_name);
         } else {
             /* Update existing local repos. */
@@ -3591,6 +3791,10 @@ seaf_repo_manager_update_current_repos (SeafRepoManager *mgr,
                 g_strcmp0 (info->name, server_info->name) != 0) {
 
                 repo = seaf_repo_manager_get_repo (seaf->repo_mgr, info->id);
+                if (repo && !repo->fs_ready) {
+                    seaf_repo_unref (repo);
+                    continue;
+                }
                 g_hash_table_remove (name_to_repo, info->name);
                 g_free (info->name);
                 info->name = g_strdup(server_info->name);
@@ -3602,7 +3806,9 @@ seaf_repo_manager_update_current_repos (SeafRepoManager *mgr,
                 g_hash_table_insert (name_to_repo, g_strdup(display_name), info);
 
                 if (repo) {
+                    char *worktree = g_strdup (repo->worktree);
                     seaf_repo_set_worktree (repo, display_name);
+                    g_free (worktree);
                     seaf_repo_unref (repo);
                 }
 
@@ -3619,14 +3825,14 @@ seaf_repo_manager_update_current_repos (SeafRepoManager *mgr,
 
             if (server_info->is_corrupted)
                 info->is_corrupted = TRUE;
-        }
+            }
     }
 
     /* Add new repos from server_repos to local cache. */
     g_hash_table_iter_init (&iter, server_repos);
     while (g_hash_table_iter_next (&iter, &key, &value)) {
         repo_id = key;
-        if (!g_hash_table_lookup (curr_repos, repo_id)) {
+        if (!g_hash_table_lookup (repo_infos, repo_id)) {
             info = value;
             copy = repo_info_copy (info);
             *added = g_list_prepend (*added, copy);
@@ -3638,13 +3844,9 @@ seaf_repo_manager_update_current_repos (SeafRepoManager *mgr,
         display_name = find_unique_display_name (name_to_repo, info->type, info->name);
         info->display_name = display_name;
         copy = repo_info_copy (info);
-        g_hash_table_insert (curr_repos, g_strdup(info->id), copy);
+        g_hash_table_insert (repo_infos, g_strdup(info->id), copy);
         g_hash_table_insert (name_to_repo, g_strdup(display_name), copy);
     }
-
-    /* account may be changed after account_lock is released. */
-    server = g_strdup(account->server);
-    username = g_strdup(account->username);
 
     pthread_rwlock_unlock (&mgr->priv->account_lock);
 
@@ -3667,33 +3869,48 @@ seaf_repo_manager_update_current_repos (SeafRepoManager *mgr,
 
     pthread_mutex_unlock (&mgr->priv->db_lock);
 
-    g_free (server);
-    g_free (username);
+    g_free (account_key);
+    g_list_free (account_repos);
     g_list_free_full (updated, (GDestroyNotify)repo_info_free);
 
     return 0;
 }
 
 int
-seaf_repo_manager_add_repo_to_current_account (SeafRepoManager *mgr,
-                                               const char *server,
-                                               const char *username,
-                                               SeafRepo *repo)
+seaf_repo_manager_add_repo_to_account (SeafRepoManager *mgr,
+                                       const char *server,
+                                       const char *username,
+                                       SeafRepo *repo)
 {
     int ret = 0;
     RepoInfo *info = NULL;
+    GHashTable *name_to_repo = NULL;
+    char *account_key = NULL;
+
+    if (!seaf_repo_manager_account_exists (mgr, server, username)) {
+        return -1;
+    }
+
+    account_key = g_strconcat (server, "_", username, NULL);
 
     pthread_rwlock_wrlock (&mgr->priv->account_lock);
+
+    if (g_hash_table_lookup (mgr->priv->repo_infos, repo->id) != NULL) {
+        pthread_rwlock_unlock (&mgr->priv->account_lock);
+        goto out;
+    }
+
+    name_to_repo = g_hash_table_lookup (mgr->priv->repo_names, account_key);
 
     info = repo_info_new (repo->id, repo->head->commit_id, repo->name,
                           repo->last_modify, FALSE);
     info->type = REPO_TYPE_MINE;
-    info->display_name = find_unique_display_name (mgr->priv->name_to_repo,
+    info->display_name = find_unique_display_name (name_to_repo,
                                                    REPO_TYPE_MINE,
                                                    repo->name);
 
-    g_hash_table_replace (mgr->priv->curr_repos, g_strdup (info->id), info);
-    g_hash_table_replace (mgr->priv->name_to_repo, g_strdup (info->display_name), info);
+    g_hash_table_replace (mgr->priv->repo_infos, g_strdup (info->id), info);
+    g_hash_table_replace (name_to_repo, g_strdup (info->display_name), info);
 
     pthread_rwlock_unlock (&mgr->priv->account_lock);
 
@@ -3702,50 +3919,63 @@ seaf_repo_manager_add_repo_to_current_account (SeafRepoManager *mgr,
     ret = add_repo_to_account (mgr->priv->db, server, username, info);
     if (ret < 0) {
         pthread_mutex_unlock (&mgr->priv->db_lock);
+        g_free (account_key);
         repo_info_free (info);
         return -1;
     }
 
     pthread_mutex_unlock (&mgr->priv->db_lock);
 
+out:
+    g_free (account_key);
     return ret;
 }
 
 int
-seaf_repo_manager_rename_repo_on_current_account (SeafRepoManager *mgr,
-                                                  const char *server,
-                                                  const char *username,
-                                                  const char *repo_id,
-                                                  const char *new_name)
+seaf_repo_manager_rename_repo_on_account (SeafRepoManager *mgr,
+                                          const char *server,
+                                          const char *username,
+                                          const char *repo_id,
+                                          const char *new_name)
 {
+    GHashTable *name_to_repo = NULL;
     RepoInfo *info;
     SeafRepo *repo;
     char *orig_repo_name;
     char *orig_display_name;
     char *display_name;
+    char *account_key = NULL;
     int ret = 0;
+
+    if (!seaf_repo_manager_account_exists (mgr, server, username)) {
+        ret = -1;
+        goto out;
+    }
+
+    account_key = g_strconcat (server, "_", username, NULL);
 
     display_name = seaf_repo_manager_get_repo_display_name (mgr, repo_id);
 
     pthread_rwlock_wrlock (&mgr->priv->account_lock);
 
-    info = g_hash_table_lookup (mgr->priv->name_to_repo, display_name);
+    name_to_repo = g_hash_table_lookup (mgr->priv->repo_names, account_key);
+    info = g_hash_table_lookup (name_to_repo, display_name);
     g_free (display_name);
     if (!info) {
         ret = -1;
         goto out;
     }
 
-    g_hash_table_remove (mgr->priv->name_to_repo, info->display_name);
+    g_hash_table_remove (name_to_repo, info->display_name);
 
     orig_repo_name = info->name;
     orig_display_name = info->display_name;
     info->name = g_strdup (new_name);
-    info->display_name = find_unique_display_name (mgr->priv->name_to_repo,
+    info->display_name = find_unique_display_name (name_to_repo,
                                                    info->type,
                                                    new_name);
 
-    g_hash_table_replace (mgr->priv->name_to_repo, g_strdup (info->display_name), info);
+    g_hash_table_replace (name_to_repo, g_strdup (info->display_name), info);
 
     pthread_rwlock_unlock (&mgr->priv->account_lock);
 
@@ -3758,7 +3988,7 @@ seaf_repo_manager_rename_repo_on_current_account (SeafRepoManager *mgr,
         g_free (info->display_name);
         info->name = orig_repo_name;
         info->display_name = orig_display_name;
-        g_hash_table_replace (mgr->priv->name_to_repo,
+        g_hash_table_replace (name_to_repo,
                               g_strdup(info->display_name),
                               info);
         goto out;
@@ -3775,6 +4005,7 @@ seaf_repo_manager_rename_repo_on_current_account (SeafRepoManager *mgr,
     g_free (orig_display_name);
 
 out:
+    g_free (account_key);
     return ret;
 }
 
@@ -3787,12 +4018,7 @@ seaf_repo_manager_set_repo_info_head_commit (SeafRepoManager *mgr,
 
     pthread_rwlock_wrlock (&mgr->priv->account_lock);
 
-    if (!mgr->priv->curr_account->server) {
-        pthread_rwlock_unlock (&mgr->priv->account_lock);
-        return;
-    }
-
-    info = g_hash_table_lookup (mgr->priv->curr_repos, repo_id);
+    info = g_hash_table_lookup (mgr->priv->repo_infos, repo_id);
     if (!info)
         goto out;
 
@@ -3806,13 +4032,15 @@ out:
 #define JOURNAL_FLUSH_TIMEOUT 5
 
 void
-seaf_repo_manager_flush_current_repo_journals (SeafRepoManager *mgr)
+seaf_repo_manager_flush_account_repo_journals (SeafRepoManager *mgr,
+                                               const char *server,
+                                               const char *user)
 {
     GList *repo_ids, *ptr;
     char *repo_id;
     SeafRepo *repo;
 
-    repo_ids = seaf_repo_manager_get_current_repo_ids (seaf->repo_mgr);
+    repo_ids = seaf_repo_manager_get_account_repo_ids (seaf->repo_mgr, server, user);
     for (ptr = repo_ids; ptr; ptr = ptr->next) {
         repo_id = ptr->data;
         repo = seaf_repo_manager_get_repo (seaf->repo_mgr, repo_id);
@@ -3933,9 +4161,28 @@ out:
 }
 
 char *
-seaf_repo_manager_get_display_name_by_repo_name (SeafRepoManager *mgr, const char *repo_name)
+seaf_repo_manager_get_display_name_by_repo_name (SeafRepoManager *mgr,
+                                                 const char *server,
+                                                 const char *user,
+                                                 const char *repo_name)
 {
-    return find_unique_display_name (mgr->priv->name_to_repo,
+    GHashTable *name_to_repo = NULL;
+    char *account_key = NULL;
+
+    if (!seaf_repo_manager_account_exists (mgr, server, user)) {
+        return NULL;
+
+    }
+
+    account_key = g_strconcat (server, "_", user, NULL);
+
+    pthread_rwlock_rdlock (&mgr->priv->account_lock);
+    name_to_repo = g_hash_table_lookup (mgr->priv->repo_names, account_key);
+    pthread_rwlock_unlock (&mgr->priv->account_lock);
+
+    g_free (account_key);
+
+    return find_unique_display_name (name_to_repo,
                                      REPO_TYPE_MINE,
                                      repo_name);
 }
@@ -3960,21 +4207,30 @@ count_of_repo_id_in_account_repos (SeafRepoManager *mgr, const char *repo_id)
 }
 
 char *
-seaf_repo_manager_get_first_repo_token_from_curr_repos (SeafRepoManager *mgr,
-                                                       char **repo_token)
+seaf_repo_manager_get_first_repo_token_from_account_repos (SeafRepoManager *mgr,
+                                                           const char *server,
+                                                           const char *username,
+                                                           char **repo_token)
 {
-    GHashTable *curr_repos;
+    GHashTable *name_to_repo;
     GHashTableIter iter;
     gpointer key, value;
     RepoInfo *info = NULL;
     char *repo_id = NULL;
+    char *account_key = NULL;
     SeafRepo *repo;
 
-    curr_repos = mgr->priv->curr_repos;
+    account_key = g_strconcat (server, "_", username, NULL);
 
-    g_hash_table_iter_init (&iter, curr_repos);
+    name_to_repo = g_hash_table_lookup (mgr->priv->repo_names, account_key);
+    if (!name_to_repo) {
+        goto out;
+    }
+
+    g_hash_table_iter_init (&iter, name_to_repo);
     while (g_hash_table_iter_next (&iter, &key, &value)) {
-        repo = seaf_repo_manager_get_repo (mgr, key);
+        info = value;
+        repo = seaf_repo_manager_get_repo (mgr, info->id);
         if (!repo || repo->delete_pending || !repo->token) {
             seaf_repo_unref (repo);
             continue;
@@ -3985,12 +4241,14 @@ seaf_repo_manager_get_first_repo_token_from_curr_repos (SeafRepoManager *mgr,
             seaf_repo_unref (repo);
             continue;
         }
-        repo_id = g_strdup (key);
+        repo_id = g_strdup (repo->id);
         *repo_token = g_strdup (repo->token);
         seaf_repo_unref (repo);
         break;
     }
 
+out:
+    g_free (account_key);
     return repo_id;
 }
 

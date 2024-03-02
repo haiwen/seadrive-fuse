@@ -382,7 +382,7 @@ static const char *ignore_table[] = {
 static GPatternSpec **ignore_patterns;
 static GPatternSpec* office_temp_ignore_patterns[4];
 
-static int update_current_repo_list_pulse (void *vmanager);
+static int update_repo_list_pulse (void *vmanager);
 
 static int auto_sync_pulse (void *vmanager);
 
@@ -1032,7 +1032,7 @@ seaf_sync_manager_start (SeafSyncManager *mgr)
         auto_sync_pulse, mgr, CHECK_SYNC_INTERVAL);
 
     mgr->priv->update_repo_list_timer = seaf_timer_new (
-           update_current_repo_list_pulse, mgr, CHECK_REPO_LIST_INTERVAL*1000);
+           update_repo_list_pulse, mgr, CHECK_REPO_LIST_INTERVAL*1000);
 
     mgr->priv->update_tx_state_timer = seaf_timer_new (
            update_tx_state_pulse, mgr, UPDATE_TX_STATE_INTERVAL);
@@ -1084,14 +1084,9 @@ folder_perm_info_free (FolderPermInfo *info)
 }
 
 static void
-check_current_account_space_usage ()
+check_account_space_usage (SeafAccount *account)
 {
-    SeafAccount *account;
     gint64 total, used;
-
-    account = seaf_repo_manager_get_current_account (seaf->repo_mgr);
-    if (!account)
-        return;
 
     if (http_tx_manager_api_get_space_usage (seaf->http_tx_mgr,
                                              account->server,
@@ -1099,15 +1094,30 @@ check_current_account_space_usage ()
                                              &total, &used) < 0) {
         seaf_warning ("Failed to get space usage for account %s/%s\n",
                       account->server, account->username);
-        seaf_account_free (account);
         return;
     }
 
     seaf_repo_manager_set_account_space (seaf->repo_mgr,
                                          account->server, account->username,
                                          total, used);
+}
 
-    seaf_account_free (account);
+static void
+check_accounts_space_usage ()
+{
+    GList *accounts = NULL, *ptr;
+    SeafAccount *account;
+
+    accounts = seaf_repo_manager_get_account_list (seaf->repo_mgr);
+    if (!accounts)
+        return;
+
+    for (ptr = accounts; ptr; ptr = ptr->next) {
+        account = ptr->data;
+        check_account_space_usage ( account);
+    }
+
+    g_list_free_full (accounts, (GDestroyNotify)seaf_account_free);
 }
 
 static void*
@@ -1116,7 +1126,7 @@ check_space_usage_thread (void *data)
     seaf_sleep (5);
 
     while (1) {
-        check_current_account_space_usage ();
+        check_accounts_space_usage ();
         seaf_sleep (60);
     }
 
@@ -1284,7 +1294,7 @@ static void update_current_repos(HttpAPIGetResult *result, void *user_data)
         if (result->http_status == HTTP_SERVERR_BAD_GATEWAY ||
             result->http_status == HTTP_SERVERR_UNAVAILABLE ||
             result->http_status == HTTP_SERVERR_TIMEOUT) {
-            seaf_repo_manager_set_account_server_disconnected (seaf->repo_mgr, TRUE);
+            seaf_repo_manager_set_account_server_disconnected (seaf->repo_mgr, account->server, account->username, TRUE);
         }
         record_sync_error (seaf->sync_mgr, NULL, NULL, NULL,
                            transfer_error_to_error_id (result->error_code));
@@ -1299,20 +1309,15 @@ static void update_current_repos(HttpAPIGetResult *result, void *user_data)
         }
         remove_sync_error (seaf->sync_mgr, NULL, NULL);
         g_atomic_int_set (&seaf->sync_mgr->priv->server_disconnected, 0);
-        seaf_repo_manager_set_account_server_disconnected (seaf->repo_mgr, FALSE);
+        seaf_repo_manager_set_account_server_disconnected (seaf->repo_mgr, account->server, account->username, FALSE);
     }
 
     /* If the get repo list request was sent around account switching,
      * this callback may be called after the account has been switched.
      */
-    curr_account = seaf_repo_manager_get_current_account (seaf->repo_mgr);
+    curr_account = seaf_repo_manager_get_account (seaf->repo_mgr, account->server, account->username);
     if (!curr_account)
         return;
-    if (strcmp (curr_account->server, account->server) != 0 ||
-        strcmp (curr_account->username, account->username) != 0) {
-        seaf_account_free (curr_account);
-        return;
-    }
     seaf_account_free (curr_account);
 
     repo_hash = g_hash_table_new_full (g_str_hash, g_str_equal,
@@ -1322,9 +1327,9 @@ static void update_current_repos(HttpAPIGetResult *result, void *user_data)
         goto out;
     }
 
-    seaf_repo_manager_set_current_repo_list_fetched (seaf->repo_mgr);
+    seaf_repo_manager_set_repo_list_fetched (seaf->repo_mgr, account->server, account->username);
 
-    seaf_repo_manager_update_current_repos (seaf->repo_mgr, repo_hash, &added, &removed);
+    seaf_repo_manager_update_account_repos (seaf->repo_mgr, account->server, account->username, repo_hash, &added, &removed);
 
     /* Mark repos removed on the server as delete-pending. */
     for (ptr = removed; ptr; ptr = ptr->next) {
@@ -1390,58 +1395,31 @@ fileserver_get_repo_list_cb (HttpAPIGetResult *result, void *user_data)
 }
 
 static int
-update_current_repo_list_pulse (void *vmanager)
+update_account_repo_list (SeafSyncManager *manager,
+                          const char *server,
+                          const char *username)
 {
-    if (seaf->last_check_repo_list_time == 0 ||
-        ((seaf->last_access_fs_time > seaf->last_check_repo_list_time) &&
-         (seaf->last_access_fs_time - seaf->last_check_repo_list_time > DEFAULT_SYNC_INTERVAL))) {
-        SeafSyncManager *manager = vmanager;
-        HttpServerState *state;
-        char *url = NULL;
-        char *repo_id = NULL;
-        char *repo_token = NULL;
+    HttpServerState *state;
+    char *url = NULL;
+    char *repo_id = NULL;
+    char *repo_token = NULL;
 
-        SeafAccount *account = seaf_repo_manager_get_current_account (seaf->repo_mgr);
-        if (!account)
-            return TRUE;
+    SeafAccount *account = seaf_repo_manager_get_account (seaf->repo_mgr, server, username);
+    if (!account)
+        return TRUE;
 
-        seaf->last_check_repo_list_time = (gint64)time(NULL);
+    //get the first repo_id and repo_token from curr_repos which will be used to validate the user
+    repo_id = seaf_repo_manager_get_first_repo_token_from_account_repos (seaf->repo_mgr, server, username, &repo_token);
+    state = get_http_server_state (manager->priv, account->fileserver_addr);
+    if (!state || !repo_id || state->is_fileserver_repo_list_api_disabled) {
+        url = g_strdup_printf ("%s/api2/repos/", account->server);
 
-        //get the first repo_id and repo_token from curr_repos which will be used to validate the user
-        repo_id = seaf_repo_manager_get_first_repo_token_from_curr_repos (seaf->repo_mgr, &repo_token);
-        state = get_http_server_state (manager->priv, account->fileserver_addr);
-        if (!state || !repo_id || state->is_fileserver_repo_list_api_disabled) {
-            url = g_strdup_printf ("%s/api2/repos/", account->server);
-
-            if (http_tx_manager_api_get (seaf->http_tx_mgr,
-                                         account->server,
-                                         url,
-                                         account->token,
-                                         get_repo_list_cb,
-                                         account) < 0) {
-                seaf_warning ("Failed to start get repo list from server %s\n",
-                              account->server);
-                seaf_account_free (account);
-            }
-
-            g_free (repo_id);
-            g_free (repo_token);
-            g_free (url);
-            return TRUE;
-        }
-
-        if (!state->use_fileserver_port)
-            url = g_strdup_printf ("%s/seafhttp/accessible-repos/?repo_id=%s", state->effective_host, repo_id);
-        else
-            url = g_strdup_printf ("%s/accessible-repos/?repo_id=%s", state->effective_host, repo_id);
-
-
-        if (http_tx_manager_fileserver_api_get  (seaf->http_tx_mgr,
-                                                 state->effective_host,
-                                                 url,
-                                                 repo_token,
-                                                 fileserver_get_repo_list_cb,
-                                                 account) < 0) {
+        if (http_tx_manager_api_get (seaf->http_tx_mgr,
+                                     account->server,
+                                     url,
+                                     account->token,
+                                     get_repo_list_cb,
+                                     account) < 0) {
             seaf_warning ("Failed to start get repo list from server %s\n",
                           account->server);
             seaf_account_free (account);
@@ -1450,15 +1428,60 @@ update_current_repo_list_pulse (void *vmanager)
         g_free (repo_id);
         g_free (repo_token);
         g_free (url);
+        return TRUE;
     }
+
+    if (!state->use_fileserver_port)
+        url = g_strdup_printf ("%s/seafhttp/accessible-repos/?repo_id=%s", state->effective_host, repo_id);
+    else
+        url = g_strdup_printf ("%s/accessible-repos/?repo_id=%s", state->effective_host, repo_id);
+
+
+    if (http_tx_manager_fileserver_api_get  (seaf->http_tx_mgr,
+                                             state->effective_host,
+                                             url,
+                                             repo_token,
+                                             fileserver_get_repo_list_cb,
+                                             account) < 0) {
+        seaf_warning ("Failed to start get repo list from server %s\n",
+                      account->server);
+        seaf_account_free (account);
+    }
+
+    g_free (repo_id);
+    g_free (repo_token);
+    g_free (url);
+
+    return TRUE;
+}
+
+static int
+update_repo_list_pulse (void *vmanager)
+{
+    SeafSyncManager *manager = vmanager;
+    GList *accounts = NULL, *ptr;
+    SeafAccount *account;
+
+    accounts = seaf_repo_manager_get_account_list (seaf->repo_mgr);
+    if (!accounts)
+        return TRUE;
+
+    for (ptr = accounts; ptr; ptr = ptr->next) {
+        account = ptr->data;
+        update_account_repo_list (manager, account->server, account->username);
+    }
+
+    g_list_free_full (accounts, (GDestroyNotify)seaf_account_free);
 
     return TRUE;
 }
 
 int
-seaf_sync_manager_update_repo_list (SeafSyncManager *mgr)
+seaf_sync_manager_update_account_repo_list (SeafSyncManager *mgr,
+                                            const char *server,
+                                            const char *user)
 {
-    return update_current_repo_list_pulse (mgr);
+    return update_account_repo_list (mgr, server, user);
 }
 
 static void
@@ -1522,7 +1545,7 @@ check_folder_permissions_immediately  (SeafSyncManager *mgr,
     HttpFolderPermReq *req;
     GList *requests = NULL;
 
-    repo_ids = seaf_repo_manager_get_current_repo_ids (seaf->repo_mgr);
+    repo_ids = seaf_repo_manager_get_account_repo_ids (seaf->repo_mgr, server, user);
 
     for (ptr = repo_ids; ptr; ptr = ptr->next) {
         repo_id = ptr->data;
@@ -1652,7 +1675,7 @@ check_server_locked_files_done (HttpLockedFiles *result, void *user_data)
 
 static void
 check_locked_files_immediately (SeafSyncManager *mgr, HttpServerState *server_state,
-                                gboolean force)
+                                const char *server, const char *user, gboolean force)
 {
     GList *repo_ids;
     GList *ptr;
@@ -1663,7 +1686,7 @@ check_locked_files_immediately (SeafSyncManager *mgr, HttpServerState *server_st
     GList *requests = NULL;
 
 
-    repo_ids = seaf_repo_manager_get_current_repo_ids (seaf->repo_mgr);
+    repo_ids = seaf_repo_manager_get_account_repo_ids (seaf->repo_mgr, server, user);
 
     for (ptr = repo_ids; ptr; ptr = ptr->next) {
         repo_id = ptr->data;
@@ -1720,7 +1743,8 @@ check_locked_files_immediately (SeafSyncManager *mgr, HttpServerState *server_st
 }
 
 static void
-check_locked_files (SeafSyncManager *mgr, HttpServerState *server_state)
+check_locked_files (SeafSyncManager *mgr, HttpServerState *server_state,
+                    const char *server, const char *user)
 {
     gint64 now = (gint64)time(NULL);
 
@@ -1731,7 +1755,7 @@ check_locked_files (SeafSyncManager *mgr, HttpServerState *server_state)
     
     if (server_state->immediate_check_locked_files) {
         server_state->immediate_check_locked_files = FALSE;
-        check_locked_files_immediately (mgr, server_state, TRUE);
+        check_locked_files_immediately (mgr, server_state, server, user, TRUE);
         return;
     }
 
@@ -1739,7 +1763,7 @@ check_locked_files (SeafSyncManager *mgr, HttpServerState *server_state)
         now - server_state->last_check_locked_files_time < CHECK_SERVER_LOCKED_FILES_INTERVAL)
         return;
 
-    check_locked_files_immediately (mgr, server_state, FALSE);
+    check_locked_files_immediately (mgr, server_state, server, user, FALSE);
 }
 
 static char *
@@ -2106,9 +2130,8 @@ sync_repo (SeafSyncManager *manager,
            SeafRepo *repo);
 
 static int
-auto_sync_pulse (void *vmanager)
+auto_sync_account_repos (SeafSyncManager *manager, const char *server, const char *user)
 {
-    SeafSyncManager *manager = vmanager;
     SeafAccount *account;
     GList *repo_info_list, *ptr, *sync_info_list = NULL;
     RepoInfo *repo_info;
@@ -2120,7 +2143,7 @@ auto_sync_pulse (void *vmanager)
     if (!manager->priv->auto_sync_enabled)
         return TRUE;
 
-    account = seaf_repo_manager_get_current_account (seaf->repo_mgr);
+    account = seaf_repo_manager_get_account (seaf->repo_mgr, server, user);
     if (!account)
         return TRUE;
 
@@ -2144,11 +2167,11 @@ auto_sync_pulse (void *vmanager)
 
     if (account->is_pro) {
         check_folder_permissions (manager, state, account->server, account->username);
-        check_locked_files (manager, state);
+        check_locked_files (manager, state, account->server, account->username);
     }
 
     /* Find sync_infos coresponded to repos in the current account. */
-    repo_info_list = seaf_repo_manager_get_current_repos (seaf->repo_mgr);
+    repo_info_list = seaf_repo_manager_get_account_repos (seaf->repo_mgr, server, user);
     for (ptr = repo_info_list; ptr; ptr = ptr->next) {
         repo_info = (RepoInfo *)ptr->data;
 
@@ -2196,7 +2219,7 @@ auto_sync_pulse (void *vmanager)
     }
 
     if (account->repo_list_fetched && !account->all_repos_loaded && all_repos_loaded) {
-        seaf_repo_manager_set_current_account_all_repos_loaded (seaf->repo_mgr);
+        seaf_repo_manager_set_account_all_repos_loaded (seaf->repo_mgr, server, user);
         notify_fs_loaded ();
     }
 
@@ -2269,6 +2292,27 @@ auto_sync_pulse (void *vmanager)
     return TRUE;
 }
 
+static int
+auto_sync_pulse (void *vmanager)
+{
+    SeafSyncManager *manager = vmanager;
+    GList *accounts = NULL, *ptr;
+    SeafAccount *account;
+
+    accounts = seaf_repo_manager_get_account_list (seaf->repo_mgr);
+    if (!accounts)
+        return TRUE;
+
+    for (ptr = accounts; ptr; ptr = ptr->next) {
+        account = ptr->data;
+        auto_sync_account_repos (manager, account->server, account->username);
+    }
+
+    g_list_free_full (accounts, (GDestroyNotify)seaf_account_free);
+
+    return TRUE;
+}
+
 static void
 check_repo_folder_perms_done (HttpFolderPerms *result, void *user_data)
 {
@@ -2291,6 +2335,8 @@ check_repo_folder_perms_done (HttpFolderPerms *result, void *user_data)
     int rc = http_tx_manager_add_download (seaf->http_tx_mgr,
                                            sync_info->repo_id,
                                            repo_token->repo_version,
+                                           task->server,
+                                           task->user,
                                            server_state->effective_host,
                                            repo_token->token,
                                            sync_info->repo_info->head_commit_id,
@@ -2401,7 +2447,7 @@ get_repo_sync_token_cb (HttpAPIGetResult *result, void *user_data)
     repo_token->repo_version = repo_version;
     g_hash_table_insert (seaf->sync_mgr->priv->repo_tokens, g_strdup (sync_info->repo_id), repo_token);
 
-    if (seaf_repo_manager_current_account_is_pro (seaf->repo_mgr)) {
+    if (seaf_repo_manager_account_is_pro (seaf->repo_mgr, task->server, task->user)) {
         int timestamp = seaf_repo_manager_get_folder_perm_timestamp (seaf->repo_mgr,
                                                                      sync_info->repo_id);
         if (timestamp <= 0) {
@@ -2413,6 +2459,8 @@ get_repo_sync_token_cb (HttpAPIGetResult *result, void *user_data)
     int rc = http_tx_manager_add_download (seaf->http_tx_mgr,
                                            sync_info->repo_id,
                                            repo_version,
+                                           task->server,
+                                           task->user,
                                            state->effective_host,
                                            token,
                                            sync_info->repo_info->head_commit_id,
@@ -2476,6 +2524,8 @@ get_repo_sync_token (SeafSyncManager *manager,
         int rc = http_tx_manager_add_download (seaf->http_tx_mgr,
                                                sync_info->repo_id,
                                                repo_token->repo_version,
+                                               account->server,
+                                               account->username,
                                                state->effective_host,
                                                repo_token->token,
                                                sync_info->repo_info->head_commit_id,
@@ -2606,9 +2656,9 @@ notify_delete_confirmation (const char *repo_name, const char *desc, const char 
 {
     json_t *msg = json_object ();
     json_object_set_string_member (msg, "type", "del_confirmation");
-    json_object_set_string_member (msg, "repo_name", json_string(repo_name));
-    json_object_set_string_member (msg, "delete_files", json_string(desc));
-    json_object_set_new (msg, "confirmation_id", json_string(confirmation_id));
+    json_object_set_string_member (msg, "repo_name", repo_name);
+    json_object_set_string_member (msg, "delete_files", desc);
+    json_object_set_string_member (msg, "confirmation_id", confirmation_id);
     mq_mgr_push_msg (seaf->mq_mgr, SEADRIVE_NOTIFY_CHAN, msg);
 }
 
@@ -2710,6 +2760,8 @@ sync_repo (SeafSyncManager *manager,
             int rc = http_tx_manager_add_upload (seaf->http_tx_mgr,
                                                  repo->id,
                                                  repo->version,
+                                                 repo->server,
+                                                 repo->user,
                                                  repo->repo_uname,
                                                  state->effective_host,
                                                  repo->token,
@@ -2806,6 +2858,8 @@ check_head_commit_done (HttpHeadCommit *result, void *user_data)
         int rc = http_tx_manager_add_download (seaf->http_tx_mgr,
                                                repo->id,
                                                repo->version,
+                                               repo->server,
+                                               repo->user,
                                                state->effective_host,
                                                repo->token,
                                                result->head_commit,
@@ -2850,6 +2904,28 @@ check_head_commit_http (SyncTask *task)
     return ret;
 }
 
+static gboolean
+server_is_pro (const char *server_url) {
+    GList *accounts = NULL, *ptr;
+    SeafAccount *account;
+    gboolean is_pro = FALSE;
+    accounts = seaf_repo_manager_get_account_list (seaf->repo_mgr);
+    if (!accounts)
+        return FALSE;
+
+    for (ptr = accounts; ptr; ptr = ptr->next) {
+        account = ptr->data;
+        if (g_strcmp0 (account->fileserver_addr, server_url) == 0) {
+            is_pro = account->is_pro;
+            break;
+        }
+    }
+
+    g_list_free_full (accounts, (GDestroyNotify)seaf_account_free);
+
+    return is_pro;
+}
+
 void
 seaf_sync_manager_check_locks_and_folder_perms (SeafSyncManager *manager, const char *server_url)
 {
@@ -2860,7 +2936,7 @@ seaf_sync_manager_check_locks_and_folder_perms (SeafSyncManager *manager, const 
         return;
     }
 
-    if (seaf_repo_manager_current_account_is_pro (seaf->repo_mgr)) {
+    if (server_is_pro (server_url)) {
         state->immediate_check_folder_perms = TRUE;
         state->immediate_check_locked_files = TRUE;
     }
@@ -3980,7 +4056,7 @@ commit_repo (SeafRepo *repo, gboolean *changed)
         return -1;
     }
 
-    account = seaf_repo_manager_get_current_account (seaf->repo_mgr);
+    account = seaf_repo_manager_get_account (seaf->repo_mgr, repo->server, repo->user);
     if (!account) {
         seaf_warning ("No current account found.\n");
         ret = -1;
@@ -4102,6 +4178,8 @@ commit_job_done (void *vres)
         int rc = http_tx_manager_add_upload (seaf->http_tx_mgr,
                                              repo->id,
                                              repo->version,
+                                             repo->server,
+                                             repo->user,
                                              repo->repo_uname,
                                              state->effective_host,
                                              repo->token,
@@ -4160,13 +4238,15 @@ create_commit_from_journal (SyncInfo *info, HttpServerState *state, SeafRepo *re
 
 
 HttpServerInfo *
-seaf_sync_manager_get_server_info (SeafSyncManager *mgr)
+seaf_sync_manager_get_server_info (SeafSyncManager *mgr,
+                                   const char *server,
+                                   const char *user)
 {
     SeafAccount *account;
     HttpServerState *state;
     HttpServerInfo *info = NULL;
 
-    account = seaf_repo_manager_get_current_account (seaf->repo_mgr);
+    account = seaf_repo_manager_get_account (seaf->repo_mgr, server, user);
     if (!account) {
         return NULL;
     }
@@ -4225,6 +4305,9 @@ seaf_sync_manager_update_active_path (SeafSyncManager *mgr,
                                       int mode,
                                       SyncStatus status)
 {
+    // Don't need to update active path on Linux.
+    return;
+    /*
     ActivePathsInfo *info;
     SeafRepo *repo = NULL;
 
@@ -4261,6 +4344,7 @@ seaf_sync_manager_update_active_path (SeafSyncManager *mgr,
     pthread_mutex_unlock (&mgr->priv->paths_lock);
 
     seaf_repo_unref (repo);
+    */
 }
 
 void
@@ -4268,6 +4352,9 @@ seaf_sync_manager_delete_active_path (SeafSyncManager *mgr,
                                       const char *repo_id,
                                       const char *path)
 {
+    // Don't need to update active path on Linux.
+    return;
+    /*
     ActivePathsInfo *info;
 
     if (!repo_id || !path) {
@@ -4287,6 +4374,7 @@ seaf_sync_manager_delete_active_path (SeafSyncManager *mgr,
     sync_status_tree_del (info->synced_tree, path);
 
     pthread_mutex_unlock (&mgr->priv->paths_lock);
+    */
 }
 
 static char *path_status_tbl[] = {
@@ -4404,45 +4492,6 @@ out:
     return g_strdup(path_status_tbl[ret]);
 }
 
-
-
-char *
-seaf_sync_manager_get_category_sync_status (SeafSyncManager *mgr,
-                                            const char *category)
-{
-    RepoType repo_type = repo_type_from_string (category);
-    SyncStatus repo_status, category_status = SYNC_STATUS_CLOUD;
-
-    if (repo_type == REPO_TYPE_UNKNOWN) {
-        category_status = SYNC_STATUS_NONE;
-        goto out;
-    }
-
-    GList *infos = seaf_repo_manager_get_current_repos (seaf->repo_mgr);
-    GList *ptr;
-    RepoInfo *info;
-
-    for (ptr = infos; ptr; ptr = ptr->next) {
-        info = ptr->data;
-
-        if (info->type != repo_type)
-            continue;
-
-        repo_status = get_repo_sync_status (mgr, info->id);
-        if (repo_status == SYNC_STATUS_PARTIAL_SYNCED) {
-            category_status = repo_status;
-        } else if (repo_status == SYNC_STATUS_SYNCING) {
-            category_status = repo_status;
-            break;
-        }
-    }
-
-    g_list_free_full (infos, (GDestroyNotify)repo_info_free);
-
-out:
-    return g_strdup(path_status_tbl[category_status]);
-}
-
 void
 seaf_sync_manager_remove_active_path_info (SeafSyncManager *mgr, const char *repo_id)
 {
@@ -4531,7 +4580,7 @@ do_lock_file (LockFileJob *job)
         goto out;
     }
 
-    server = seaf_sync_manager_get_server_info (seaf->sync_mgr);
+    server = seaf_sync_manager_get_server_info (seaf->sync_mgr, repo->server, repo->user);
     if (!server)
         goto out;
 
@@ -4572,7 +4621,7 @@ do_unlock_file (LockFileJob *job)
         goto out;
     }
 
-    server = seaf_sync_manager_get_server_info (seaf->sync_mgr);
+    server = seaf_sync_manager_get_server_info (seaf->sync_mgr, repo->server, repo->user);
     if (!server)
         goto out;
 
@@ -4619,13 +4668,15 @@ lock_file_worker (void *vdata)
 
 void
 seaf_sync_manager_lock_file_on_server (SeafSyncManager *mgr,
+                                       const char *server,
+                                       const char *user,
                                        const char *repo_id,
                                        const char *path)
 {
     LockFileJob *job;
     GAsyncQueue *queue = mgr->priv->lock_file_job_queue;
 
-    if (!seaf_repo_manager_current_account_is_pro (seaf->repo_mgr))
+    if (!seaf_repo_manager_account_is_pro (seaf->repo_mgr, server, user))
         return;
 
     job = g_new0 (LockFileJob, 1);
@@ -4638,13 +4689,15 @@ seaf_sync_manager_lock_file_on_server (SeafSyncManager *mgr,
 
 void
 seaf_sync_manager_unlock_file_on_server (SeafSyncManager *mgr,
+                                         const char *server,
+                                         const char *user,
                                          const char *repo_id,
                                          const char *path)
 {
     LockFileJob *job;
     GAsyncQueue *queue = mgr->priv->lock_file_job_queue;
 
-    if (!seaf_repo_manager_current_account_is_pro (seaf->repo_mgr))
+    if (!seaf_repo_manager_account_is_pro (seaf->repo_mgr, server, user))
         return;
 
     job = g_new0 (LockFileJob, 1);
@@ -4663,6 +4716,8 @@ seaf_sync_manager_unlock_file_on_server (SeafSyncManager *mgr,
 // 3. Create and init repo to make it can sync in local
 int
 seaf_sync_manager_create_repo (SeafSyncManager *mgr,
+                               const char *server,
+                               const char *user,
                                const char *repo_name)
 {
     SeafAccount *account;
@@ -4678,7 +4733,7 @@ seaf_sync_manager_create_repo (SeafSyncManager *mgr,
     int ret;
     char *display_name;
 
-    account = seaf_repo_manager_get_current_account (seaf->repo_mgr);
+    account = seaf_repo_manager_get_account (seaf->repo_mgr, server ,user);
     if (!account)
         return -1;
 
@@ -4749,7 +4804,7 @@ seaf_sync_manager_create_repo (SeafSyncManager *mgr,
     seaf_branch_unref (branch);
 
     seaf_repo_manager_set_repo_token (seaf->repo_mgr, repo, sync_token);
-    display_name = seaf_repo_manager_get_display_name_by_repo_name (seaf->repo_mgr, repo_name);
+    display_name = seaf_repo_manager_get_display_name_by_repo_name (seaf->repo_mgr, server, user, repo_name);
     seaf_repo_set_worktree (repo, display_name);
     g_free (display_name);
 
@@ -4759,12 +4814,15 @@ seaf_sync_manager_create_repo (SeafSyncManager *mgr,
         goto out;
     }
 
+    repo->server = g_strdup (server);
+    repo->user = g_strdup (user);
+
     seaf_repo_manager_add_repo (seaf->repo_mgr, repo);
 
-    ret = seaf_repo_manager_add_repo_to_current_account (seaf->repo_mgr,
-                                                         account->server,
-                                                         account->username,
-                                                         repo);
+    ret = seaf_repo_manager_add_repo_to_account (seaf->repo_mgr,
+                                                 account->server,
+                                                 account->username,
+                                                 repo);
 
 out:
     seaf_account_free (account);
@@ -4782,13 +4840,15 @@ out:
 // 2. Change some internal mapping
 int
 seaf_sync_manager_rename_repo (SeafSyncManager *mgr,
+                               const char *server,
+                               const char *user,
                                const char *repo_id,
                                const char *new_name)
 {
     SeafAccount *account;
     int ret;
 
-    account = seaf_repo_manager_get_current_account (seaf->repo_mgr);
+    account = seaf_repo_manager_get_account (seaf->repo_mgr, server, user);
     if (!account)
         return -1;
 
@@ -4797,11 +4857,11 @@ seaf_sync_manager_rename_repo (SeafSyncManager *mgr,
     if (ret < 0)
         goto out;
 
-    ret = seaf_repo_manager_rename_repo_on_current_account (seaf->repo_mgr,
-                                                            account->server,
-                                                            account->username,
-                                                            repo_id,
-                                                            new_name);
+    ret = seaf_repo_manager_rename_repo_on_account (seaf->repo_mgr,
+                                                    account->server,
+                                                    account->username,
+                                                    repo_id,
+                                                    new_name);
     if (ret < 0)
         goto out;
 
@@ -4814,12 +4874,14 @@ out:
 
 int
 seaf_sync_manager_delete_repo (SeafSyncManager *mgr,
+                               const char *server,
+                               const char *user,
                                const char *repo_id)
 {
     SeafAccount *account;
     int ret;
 
-    account = seaf_repo_manager_get_current_account (seaf->repo_mgr);
+    account = seaf_repo_manager_get_account (seaf->repo_mgr, server, user);
     if (!account)
         return -1;
 
@@ -4828,7 +4890,7 @@ seaf_sync_manager_delete_repo (SeafSyncManager *mgr,
     if (ret < 0)
         goto out;
 
-    seaf_repo_manager_remove_current_repo (seaf->repo_mgr, repo_id);
+    seaf_repo_manager_remove_account_repo (seaf->repo_mgr, repo_id, server, user);
 
 out:
     seaf_account_free (account);
@@ -4864,12 +4926,12 @@ schedule_cache_file (const char *repo_id, const char *path, RepoTreeStat *st)
 }
 
 static void
-check_server_connectivity ()
+check_server_connectivity (const char *server, const char *user)
 {
     HttpServerInfo *server_info = NULL;
 
     while (1) {
-        server_info = seaf_sync_manager_get_server_info (seaf->sync_mgr);
+        server_info = seaf_sync_manager_get_server_info (seaf->sync_mgr, server, user);
         if (server_info)
             break;
         seaf_sleep (1);
@@ -4894,7 +4956,7 @@ cache_file_task_worker (void *vdata)
             goto next;
         }
 
-        check_server_connectivity ();
+        check_server_connectivity (repo->server, repo->user);
         seaf_message ("Start to cache %s/%s\n", repo->name, task->path);
         repo_tree_traverse (repo->tree, task->path, schedule_cache_file);
 

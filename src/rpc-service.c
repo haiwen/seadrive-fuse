@@ -18,20 +18,24 @@
 #include "log.h"
 
 static int
-seafile_switch_account (const char *server, const char *username,
-                        const char *token,
-                        int is_pro, GError **error)
+seafile_add_account (const char *server, const char *username,
+                     const char *token,
+                     const char *name,
+                     int is_pro, GError **error)
 {
-    if (!server || !username || !token) {
+    if (!server || !username || !token
+        || !name
+        ) {
         g_set_error (error, SEAFILE_DOMAIN, SEAF_ERR_BAD_ARGS, "Empty Arguments");
         return -1;
     }
 
-    return seaf_repo_manager_switch_current_account (seaf->repo_mgr,
-                                                     server,
-                                                     username,
-                                                     token,
-                                                     (is_pro > 0));
+    return seaf_repo_manager_add_account (seaf->repo_mgr,
+                                          server,
+                                          username,
+                                          token,
+                                          name,
+                                          (is_pro > 0));
 }
 
 /* static int */
@@ -50,14 +54,22 @@ seafile_switch_account (const char *server, const char *username,
 /* } */
 
 static int
-seafile_delete_account (const char *server, const char *username, int remove_cache, GError **error)
+seafile_delete_account (const char *server,
+                        const char *username,
+                        gboolean remove_cache,
+                        GError **error)
 {
-    if (!server || !username) {
+    if (!server || !username
+       ) {
         g_set_error (error, SEAFILE_DOMAIN, SEAF_ERR_BAD_ARGS, "Empty Arguments");
         return -1;
     }
 
-    return seaf_repo_manager_delete_account (seaf->repo_mgr, server, username, remove_cache);
+    return seaf_repo_manager_delete_account (seaf->repo_mgr,
+                                             server,
+                                             username,
+                                             remove_cache,
+                                             error);
 }
 
 static int
@@ -194,7 +206,9 @@ seafile_enable_auto_sync (GError **error)
 }
 
 static char *
-seafile_get_path_sync_status (const char *repo_uname,
+seafile_get_path_sync_status (const char *server,
+                              const char *username,
+                              const char *repo_uname,
                               const char *path,
                               GError **error)
 {
@@ -207,7 +221,7 @@ seafile_get_path_sync_status (const char *repo_uname,
         return NULL;
     }
 
-    repo_id = seaf_repo_manager_get_repo_id_by_name (seaf->repo_mgr, repo_uname);
+    repo_id = seaf_repo_manager_get_repo_id_by_name (seaf->repo_mgr, server, username, repo_uname);
     if (!repo_id) {
         g_set_error (error, SEAFILE_DOMAIN, SEAF_ERR_BAD_ARGS, "Invalid repo unique name");
         return NULL;
@@ -228,17 +242,6 @@ seafile_get_path_sync_status (const char *repo_uname,
     return status;
 }
 
-static char *
-seafile_get_category_sync_status (const char *category, GError **error)
-{
-    if (!category) {
-        g_set_error (error, SEAFILE_DOMAIN, SEAF_ERR_BAD_ARGS, "Argument should not be null");
-        return NULL;
-    }
-
-    return seaf_sync_manager_get_category_sync_status (seaf->sync_mgr, category);
-}
-
 static json_t *
 seafile_get_sync_notification (GError **error)
 {
@@ -252,7 +255,7 @@ seafile_get_events_notification (GError **error)
 }
 
 static char*
-seafile_get_repo_id_by_uname (const char *repo_uname, GError **error)
+seafile_get_repo_id_by_uname (const char *server, const char *username, const char *repo_uname, GError **error)
 {
     char *repo_id;
 
@@ -261,7 +264,7 @@ seafile_get_repo_id_by_uname (const char *repo_uname, GError **error)
         return NULL;
     }
 
-    repo_id = seaf_repo_manager_get_repo_id_by_name (seaf->repo_mgr, repo_uname);
+    repo_id = seaf_repo_manager_get_repo_id_by_name (seaf->repo_mgr, server, username, repo_uname);
     if (!repo_id) {
         g_set_error (error, SEAFILE_DOMAIN, SEAF_ERR_BAD_ARGS, "Invalid repo unique name");
         return NULL;
@@ -372,14 +375,14 @@ seafile_mark_file_unlocked (const char *repo_id, const char *path, GError **erro
 }
 
 static int
-seafile_cancel_download (const char *full_file_path, GError **error)
+seafile_cancel_download (const char *server, const char *user, const char *full_file_path, GError **error)
 {
     if (!full_file_path) {
         g_set_error (error, SEAFILE_DOMAIN, SEAF_ERR_BAD_ARGS, "Argument should not be null");
         return -1;
     }
 
-    return file_cache_mgr_cancel_download (seaf->file_cache_mgr, full_file_path, error);
+    return file_cache_mgr_cancel_download (seaf->file_cache_mgr, server, user, full_file_path, error);
 }
 
 static json_t *
@@ -636,9 +639,9 @@ register_rpc_service ()
     searpc_create_service ("seadrive-rpcserver");
 
     searpc_server_register_function ("seadrive-rpcserver",
-                                     seafile_switch_account,
-                                     "seafile_switch_account",
-                                     searpc_signature_int__string_string_string_int());
+                                     seafile_add_account,
+                                     "seafile_add_account",
+                                     searpc_signature_int__string_string_string_string_int());
 
     searpc_server_register_function ("seadrive-rpcserver",
                                      seafile_delete_account,
@@ -728,12 +731,7 @@ register_rpc_service ()
     searpc_server_register_function ("seadrive-rpcserver",
                                      seafile_get_path_sync_status,
                                      "seafile_get_path_sync_status",
-                                     searpc_signature_string__string_string());
-
-    searpc_server_register_function ("seadrive-rpcserver",
-                                     seafile_get_category_sync_status,
-                                     "seafile_get_category_sync_status",
-                                     searpc_signature_string__string());
+                                     searpc_signature_string__string_string_string_string());
 
     searpc_server_register_function ("seadrive-rpcserver",
                                      seafile_get_sync_notification,
@@ -748,7 +746,7 @@ register_rpc_service ()
     searpc_server_register_function ("seadrive-rpcserver",
                                      seafile_get_repo_id_by_uname,
                                      "seafile_get_repo_id_by_uname",
-                                     searpc_signature_string__string());
+                                     searpc_signature_string__string_string_string());
 
     searpc_server_register_function ("seadrive-rpcserver",
                                      seafile_get_repo_display_name_by_id,
@@ -783,7 +781,7 @@ register_rpc_service ()
     searpc_server_register_function ("seadrive-rpcserver",
                                      seafile_cancel_download,
                                      "seafile_cancel_download",
-                                     searpc_signature_int__string());
+                                     searpc_signature_int__string_string_string());
 
     searpc_server_register_function ("seadrive-rpcserver",
                                      seafile_list_sync_errors,
