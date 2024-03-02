@@ -138,6 +138,8 @@ http_tx_task_free (HttpTxTask *task)
     g_free (task->unsyncable_path);
     g_free (task->host);
     g_free (task->token);
+    g_free (task->server);
+    g_free (task->user);
     g_free (task);
 }
 
@@ -2626,8 +2628,8 @@ check_permission (HttpTxTask *task, Connection *conn)
         } else {
             task->error = HTTP_TASK_ERR_FORBIDDEN;
         }
-        seaf_repo_manager_set_if_current_repo_unsyncable (seaf->repo_mgr, task->repo_id,
-                                                          perm_unsyncable);
+        seaf_repo_manager_set_if_repo_unsyncable (seaf->repo_mgr, task->repo_id,
+                                                  perm_unsyncable);
         ret = -1;
     }
 
@@ -2647,6 +2649,8 @@ int
 http_tx_manager_add_upload (HttpTxManager *manager,
                             const char *repo_id,
                             int repo_version,
+                            const char *server,
+                            const char *user,
                             const char *repo_uname,
                             const char *host,
                             const char *token,
@@ -2673,6 +2677,9 @@ http_tx_manager_add_upload (HttpTxManager *manager,
     task->state = HTTP_TASK_STATE_NORMAL;
 
     task->use_fileserver_port = use_fileserver_port;
+
+    task->server = g_strdup (server);
+    task->user = g_strdup (user);
 
     g_hash_table_insert (manager->priv->upload_tasks,
                          g_strdup(repo_id),
@@ -4315,6 +4322,8 @@ int
 http_tx_manager_add_download (HttpTxManager *manager,
                               const char *repo_id,
                               int repo_version,
+                              const char *server,
+                              const char *user,
                               const char *host,
                               const char *token,
                               const char *server_head_id,
@@ -4349,6 +4358,8 @@ http_tx_manager_add_download (HttpTxManager *manager,
     task->state = HTTP_TASK_STATE_NORMAL;
 
     task->use_fileserver_port = use_fileserver_port;
+    task->server = g_strdup (server);
+    task->user = g_strdup (user);
 
     g_hash_table_insert (manager->priv->download_tasks,
                          g_strdup(repo_id),
@@ -5140,6 +5151,9 @@ update_local_repo (HttpTxTask *task)
             ret = -1;
             goto out;
         }
+
+        repo->server = g_strdup (task->server);
+        repo->user = g_strdup (task->user);
 
         seaf_repo_from_commit (repo, new_head);
 

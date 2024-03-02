@@ -20,11 +20,11 @@ struct _FusePathComps {
     RepoInfo *repo_info;
     char *repo_path;
     char *root_path;
-    char * spotlight_path;
+    // account_info will not be set only if there are multiple accounts and it is the root directory.
+    AccountInfo *account_info;
+    gboolean multi_account;
 };
 typedef struct _FusePathComps FusePathComps;
-
-#define SPOTLIGHT_PATH_PREFIX ".Spotlight-"
 
 /*
  * Input path and return result can be:
@@ -42,7 +42,7 @@ typedef struct _FusePathComps FusePathComps;
  * If root_path is set, repo_info and repo_path are always NULL.
  */
 static int
-parse_fuse_path (const char *path, FusePathComps *path_comps)
+parse_fuse_path_single_account (SeafAccount *account, const char *path, FusePathComps *path_comps)
 {
     char *path_nfc = NULL;
     char **tokens;
@@ -72,36 +72,20 @@ parse_fuse_path (const char *path, FusePathComps *path_comps)
     case 1:
         path_comps->repo_type = repo_type_from_string (tokens[0]);
         if (path_comps->repo_type == REPO_TYPE_UNKNOWN) {
-#ifdef __APPLE__
-            if (strncmp (tokens[0], SPOTLIGHT_PATH_PREFIX, strlen(SPOTLIGHT_PATH_PREFIX)) == 0) {
-                path_comps->spotlight_path = g_strdup(path);
-            } else {
-                ret = -ENOENT;
-            }
-#else
             ret = -ENOENT;
-#endif
             goto out;
         }
         break;
     case 2:
         path_comps->repo_type = repo_type_from_string (tokens[0]);
         if (path_comps->repo_type == REPO_TYPE_UNKNOWN) {
-#ifdef __APPLE__
-            if (strncmp (tokens[0], SPOTLIGHT_PATH_PREFIX, strlen(SPOTLIGHT_PATH_PREFIX)) == 0) {
-                path_comps->spotlight_path = g_strdup(path);
-            } else {
-                ret = -ENOENT;
-            }
-#else
             ret = -ENOENT;
-#endif
             goto out;
         }
 
         repo_name = tokens[1];
         display_name = g_strconcat (tokens[0], "/", tokens[1], NULL);
-        info = seaf_repo_manager_get_repo_info_by_name (seaf->repo_mgr, display_name);
+        info = seaf_repo_manager_get_repo_info_by_name (seaf->repo_mgr, account->server, account->username, display_name);
         g_free (display_name);
         if (!info) {
             path_comps->root_path = g_strdup (repo_name);
@@ -113,21 +97,13 @@ parse_fuse_path (const char *path, FusePathComps *path_comps)
     case 3:
         path_comps->repo_type = repo_type_from_string (tokens[0]);
         if (path_comps->repo_type == REPO_TYPE_UNKNOWN) {
-#ifdef __APPLE__
-            if (strncmp (tokens[0], SPOTLIGHT_PATH_PREFIX, strlen(SPOTLIGHT_PATH_PREFIX)) == 0) {
-                path_comps->spotlight_path = g_strdup(path);
-            } else {
-                ret = -ENOENT;
-            }
-#else
             ret = -ENOENT;
-#endif
             goto out;
         }
 
         repo_name = tokens[1];
         display_name = g_strconcat (tokens[0], "/", tokens[1], NULL);
-        info = seaf_repo_manager_get_repo_info_by_name (seaf->repo_mgr, display_name);
+        info = seaf_repo_manager_get_repo_info_by_name (seaf->repo_mgr, account->server, account->username, display_name);
         g_free (display_name);
         if (!info) {
             ret = -ENOENT;
@@ -146,19 +122,180 @@ out:
     return ret;
 }
 
+/*
+ * Input path and return result can be:
+ * 1. root dir      -> return 0, repo_type == 0, account_info == NULL
+ * 2. accounts dir      -> return 0, repo_type == 0, account_info != NULL
+ * 3. category dir  -> return 0, repo_type == TYPE, repo_info == NULL, repo_path == NULL
+ * 4. new category dir -> return -ENOENT, repo_type == 0
+ * 5. repo dir      -> return 0, repo_type == TYPE, repo_info != NULL, repo_path == NULL
+ * 6. new repo dir && repo_path
+ *                  -> return -ENOENT, repo_type == TYPE, repo_info == NULL, repo_path == NULL
+ * 7. new repo dir && !repo_path
+ *                  -> return 0, repo_type == TYPE, repo_info == NULL, repo_path == NULL, root_path == new repo dir
+ * 8. repo path     -> return 0, repo_type == TYPE, repo_info != NULL, repo_path != NULL
+ *
+ * Note that case 3 and 7 are quite similar. The only difference is whether root_path is set.
+ * If root_path is set, repo_info and repo_path are always NULL.
+ */
+static int
+parse_fuse_path_multi_account (const char *path, FusePathComps *path_comps)
+{
+    char *path_nfc = NULL;
+    char **tokens;
+    int n;
+    char *repo_name, *display_name;
+    RepoInfo *info;
+    int ret = 0;
+    AccountInfo *account_info = NULL;
+
+    path_comps->repo_info = NULL;
+    path_comps->repo_path = NULL;
+
+    path_nfc = g_utf8_normalize (path, -1, G_NORMALIZE_NFC);
+    if (!path_nfc)
+        return -ENOENT;
+
+    if (*path_nfc == '/')
+        path = path_nfc + 1;
+    else
+        path = path_nfc;
+
+    tokens = g_strsplit (path, "/", 4);
+    n = g_strv_length (tokens);
+
+    switch (n) {
+    case 0:
+        break;
+    case 1:
+        account_info = seaf_repo_manager_get_account_info_by_name (seaf->repo_mgr, tokens[0]);
+        if (!account_info) {
+            ret = -ENOENT;
+            goto out;
+        }
+        path_comps->account_info = account_info;
+        break;
+    case 2:
+        account_info = seaf_repo_manager_get_account_info_by_name (seaf->repo_mgr, tokens[0]);
+        if (!account_info) {
+            ret = -ENOENT;
+            goto out;
+        }
+        path_comps->repo_type = repo_type_from_string (tokens[1]);
+        if (path_comps->repo_type == REPO_TYPE_UNKNOWN) {
+            account_info_free (account_info);
+            ret = -ENOENT;
+            goto out;
+        }
+        path_comps->account_info = account_info;
+        break;
+    case 3:
+        account_info = seaf_repo_manager_get_account_info_by_name (seaf->repo_mgr, tokens[0]);
+        if (!account_info) {
+            ret = -ENOENT;
+            goto out;
+        }
+        path_comps->repo_type = repo_type_from_string (tokens[1]);
+        if (path_comps->repo_type == REPO_TYPE_UNKNOWN) {
+            account_info_free (account_info);
+            ret = -ENOENT;
+            goto out;
+        }
+        path_comps->account_info = account_info;
+
+        repo_name = tokens[2];
+        display_name = g_strconcat (tokens[1], "/", tokens[2], NULL);
+        info = seaf_repo_manager_get_repo_info_by_name (seaf->repo_mgr, account_info->server, account_info->username, display_name);
+        g_free (display_name);
+        if (!info) {
+            path_comps->root_path = g_strdup (repo_name);
+            goto out;
+        }
+
+        path_comps->repo_info = info;
+        break;
+    case 4:
+        account_info = seaf_repo_manager_get_account_info_by_name (seaf->repo_mgr, tokens[0]);
+        if (!account_info) {
+            ret = -ENOENT;
+            goto out;
+        }
+        path_comps->repo_type = repo_type_from_string (tokens[1]);
+        if (path_comps->repo_type == REPO_TYPE_UNKNOWN) {
+            account_info_free (account_info);
+            ret = -ENOENT;
+            goto out;
+        }
+
+        repo_name = tokens[2];
+        display_name = g_strconcat (tokens[1], "/", tokens[2], NULL);
+        info = seaf_repo_manager_get_repo_info_by_name (seaf->repo_mgr, account_info->server, account_info->username, display_name);
+        g_free (display_name);
+        if (!info) {
+            account_info_free (account_info);
+            ret = -ENOENT;
+            goto out;
+        }
+
+        path_comps->account_info = account_info;
+        path_comps->repo_info = info;
+
+        path_comps->repo_path = g_strdup(tokens[3]);
+        break;
+    }
+
+out:
+    g_free (path_nfc);
+    g_strfreev (tokens);
+    return ret;
+}
+
+static int
+parse_fuse_path (const char *path, FusePathComps *path_comps)
+{
+    int ret = 0;
+    GList *accounts = NULL;
+    SeafAccount *account;
+    accounts = seaf_repo_manager_get_account_list (seaf->repo_mgr);
+    if (!accounts) {
+        ret = -ENOENT;
+        goto out;
+    }
+
+    if (g_list_length (accounts) <= 1) {
+        path_comps->multi_account = FALSE;
+        account = accounts->data;
+        ret = parse_fuse_path_single_account (account, path, path_comps);
+        if (ret == 0) {
+            AccountInfo *account_info = g_new0 (AccountInfo, 1);
+            account_info->server = g_strdup (account->server);
+            account_info->username = g_strdup (account->username);
+            path_comps->account_info = account_info;
+        }
+    } else {
+        path_comps->multi_account = TRUE;
+        ret = parse_fuse_path_multi_account (path, path_comps);
+    }
+
+out:
+    if (accounts)
+        g_list_free_full (accounts, (GDestroyNotify)seaf_account_free);
+    return ret;
+}
+
 static void
 path_comps_free (FusePathComps *comps)
 {
     if (!comps)
         return;
-    if (comps->spotlight_path)
-        g_free (comps->spotlight_path);
     if (comps->root_path) {
         g_free (comps->root_path);
     } else {
         repo_info_free (comps->repo_info);
         g_free (comps->repo_path);
     }
+    if (comps->account_info)
+        account_info_free (comps->account_info);
 }
 
 static void
@@ -171,13 +308,13 @@ notify_fs_op_error (const char *type, const char *path)
 }
 
 static gint64
-get_category_dir_mtime (RepoType type)
+get_category_dir_mtime (const char *server, const char *user, RepoType type)
 {
     GList *infos, *ptr;
     RepoInfo *info;
     gint64 mtime = 0;
 
-    infos = seaf_repo_manager_get_current_repos (seaf->repo_mgr);
+    infos = seaf_repo_manager_get_account_repos (seaf->repo_mgr, server, user);
     for (ptr = infos; ptr; ptr = ptr->next) {
         info = ptr->data;
         if (type != REPO_TYPE_UNKNOWN && info->type != type)
@@ -187,6 +324,29 @@ get_category_dir_mtime (RepoType type)
     }
 
     g_list_free_full (infos, (GDestroyNotify)repo_info_free);
+    return mtime;
+}
+
+static gint64
+get_account_dir_mtime ()
+{
+    GList *accounts = NULL, *ptr;
+    SeafAccount *account;
+    gint64 mtime = 0;
+    gint64 rc = 0;
+    accounts = seaf_repo_manager_get_account_list (seaf->repo_mgr);
+    if (!accounts) {
+        return 0;
+    }
+
+    for (ptr = accounts; ptr; ptr = ptr->next) {
+        account = ptr->data;
+        rc = get_category_dir_mtime (account->server, account->username, REPO_TYPE_MINE);
+        if (rc > mtime)
+            mtime = rc;
+    }
+    g_list_free_full (accounts, (GDestroyNotify)seaf_account_free);
+
     return mtime;
 }
 
@@ -216,11 +376,6 @@ seadrive_fuse_getattr(const char *path, struct stat *stbuf)
     uid = geteuid();
     gid = getegid();
 
-    if (comps.spotlight_path) {
-        ret = file_cache_mgr_getattr_in_root (seaf->file_cache_mgr, comps.spotlight_path, stbuf);
-        goto out;
-    }
-
     if (comps.root_path) {
         g_free (comps.root_path);
         return -ENOENT;
@@ -233,7 +388,10 @@ seadrive_fuse_getattr(const char *path, struct stat *stbuf)
         stbuf->st_size = 4096;
         stbuf->st_uid = uid;
         stbuf->st_gid = gid;
-        stbuf->st_mtime = get_category_dir_mtime (comps.repo_type);
+        if (comps.account_info)
+            stbuf->st_mtime = get_category_dir_mtime (comps.account_info->server, comps.account_info->username, comps.repo_type);
+        else
+            stbuf->st_mtime = get_account_dir_mtime ();
     } else if (!comps.repo_path) {
         /* Repo directory */
         stbuf->st_mode = S_IFDIR | 0755;
@@ -287,7 +445,25 @@ out:
 }
 
 static int
-readdir_root (void *buf, fuse_fill_dir_t filler)
+readdir_root_accounts (void *buf, fuse_fill_dir_t filler)
+{
+    GList *accounts = NULL, *ptr;
+    SeafAccount *account;
+    accounts = seaf_repo_manager_get_account_list (seaf->repo_mgr);
+    if (!accounts) {
+        return 0;
+    }
+    for (ptr = accounts; ptr; ptr = ptr->next) {
+        account = ptr->data;
+        filler (buf, account->name, NULL, 0);
+    }
+    g_list_free_full (accounts, (GDestroyNotify)seaf_account_free);
+
+    return 0;
+}
+
+static int
+readdir_root (AccountInfo *account, void *buf, fuse_fill_dir_t filler)
 {
     GList *types = repo_type_string_list ();
     GList *ptr;
@@ -315,7 +491,7 @@ readdir_root (void *buf, fuse_fill_dir_t filler)
     char *dname;
 
     root_entries = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, g_free);
-    if (file_cache_mgr_readdir_in_root (seaf->file_cache_mgr, "", root_entries) == 0) {
+    if (file_cache_mgr_readdir_in_root (seaf->file_cache_mgr, account->server, account->username, "", root_entries) == 0) {
         g_hash_table_iter_init (&iter, root_entries);
         while (g_hash_table_iter_next (&iter, &key, &value)) {
             dname = key;
@@ -329,9 +505,9 @@ readdir_root (void *buf, fuse_fill_dir_t filler)
 }
 
 static int
-readdir_category (RepoType type, void *buf, fuse_fill_dir_t filler)
+readdir_category (AccountInfo *account, RepoType type, void *buf, fuse_fill_dir_t filler)
 {
-    GList *repos = seaf_repo_manager_get_current_repos (seaf->repo_mgr);
+    GList *repos = seaf_repo_manager_get_account_repos (seaf->repo_mgr, account->server, account->username);
     GList *ptr;
     RepoInfo *info;
     SeafRepo *repo;
@@ -421,34 +597,6 @@ out:
     return ret;
 }
 
-static int
-readdir_spotlight (const char *path, void *buf, fuse_fill_dir_t filler)
-{
-    GHashTable *dirents;
-    GHashTableIter iter;
-    gpointer key, value;
-    char *dname, *dname_nfd;
-    int ret = 0;
-
-    dirents = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, g_free);
-
-    ret = file_cache_mgr_readdir_in_root (seaf->file_cache_mgr, path, dirents);
-    if (ret < 0) 
-        goto out;
-
-    g_hash_table_iter_init (&iter, dirents);
-    while (g_hash_table_iter_next (&iter, &key, &value)) {
-        dname = key;
-        dname_nfd = g_utf8_normalize (dname, -1, G_NORMALIZE_NFD);
-        filler (buf, dname_nfd, NULL, 0);
-        g_free (dname_nfd);
-    }
-
-out:
-    g_hash_table_destroy (dirents);
-    return ret;
-}
-
 int
 seadrive_fuse_readdir(const char *path, void *buf,
                       fuse_fill_dir_t filler, off_t offset,
@@ -471,30 +619,47 @@ seadrive_fuse_readdir(const char *path, void *buf,
         return -ENOENT;
     }
 
-    if (comps.spotlight_path) {
-        ret = readdir_spotlight (comps.spotlight_path, buf, filler);
-        goto out;
-    }
-
-    if (comps.root_path) {
-        ret = -ENOENT;
-    } else if (!comps.repo_type) {
-        /* Root directory */
-        ret = readdir_root (buf, filler);
-    } else if (!comps.repo_info && !comps.repo_path) {
-        /* Category directory */
-        seaf->last_access_fs_time = (gint64)time(NULL);
-        ret = readdir_category (comps.repo_type, buf, filler);
-    } else if (!comps.repo_path) {
-        /* Repo directory */
-        seaf->last_access_fs_time = (gint64)time(NULL);
-        ret = readdir_repo (comps.repo_info->id, "", buf, filler);
+    if (comps.multi_account) {
+        if (comps.root_path) {
+            ret = -ENOENT;
+        } else if (!comps.account_info) {
+            /* Root directory */
+            ret = readdir_root_accounts (buf, filler);
+        } else if (!comps.repo_type) {
+            /* Account directory */
+            ret = readdir_root (comps.account_info, buf, filler);
+        } else if (!comps.repo_info && !comps.repo_path) {
+            /* Category directory */
+            seaf->last_access_fs_time = (gint64)time(NULL);
+            ret = readdir_category (comps.account_info, comps.repo_type, buf, filler);
+        } else if (!comps.repo_path) {
+            /* Repo directory */
+            seaf->last_access_fs_time = (gint64)time(NULL);
+            ret = readdir_repo (comps.repo_info->id, "", buf, filler);
+        } else {
+            seaf->last_access_fs_time = (gint64)time(NULL);
+            ret = readdir_repo (comps.repo_info->id, comps.repo_path, buf, filler);
+        }
     } else {
-        seaf->last_access_fs_time = (gint64)time(NULL);
-        ret = readdir_repo (comps.repo_info->id, comps.repo_path, buf, filler);
+        if (comps.root_path) {
+            ret = -ENOENT;
+        } else if (!comps.repo_type) {
+            /* Root directory */
+            ret = readdir_root (comps.account_info, buf, filler);
+        } else if (!comps.repo_info && !comps.repo_path) {
+            /* Category directory */
+            seaf->last_access_fs_time = (gint64)time(NULL);
+            ret = readdir_category (comps.account_info, comps.repo_type, buf, filler);
+        } else if (!comps.repo_path) {
+            /* Repo directory */
+            seaf->last_access_fs_time = (gint64)time(NULL);
+            ret = readdir_repo (comps.repo_info->id, "", buf, filler);
+        } else {
+            seaf->last_access_fs_time = (gint64)time(NULL);
+            ret = readdir_repo (comps.repo_info->id, comps.repo_path, buf, filler);
+        }
     }
 
-out:
     path_comps_free (&comps);
     return ret;
 }
@@ -538,7 +703,7 @@ repo_mknod (const char *repo_id, const char *path, mode_t mode)
 
     office_path = NULL;
     if (repo_tree_is_office_lock_file (repo->tree, path, &office_path))
-        seaf_sync_manager_lock_file_on_server (seaf->sync_mgr, repo->id, office_path);
+        seaf_sync_manager_lock_file_on_server (seaf->sync_mgr, repo->server, repo->user, repo->id, office_path);
     g_free (office_path);
 
 out:
@@ -565,14 +730,9 @@ int seadrive_fuse_mknod (const char *path, mode_t mode, dev_t dev)
             return -ENOENT;
     }
 
-    if (comps.spotlight_path) {
-        ret = file_cache_mgr_create_file_in_root (seaf->file_cache_mgr,
-                                                  comps.spotlight_path,
-                                                  mode);
-        goto out;
-    }
-
-    if (!comps.repo_type) {
+    if (!comps.account_info) {
+        ret = -EACCES;
+    } else if (!comps.repo_type) {
         ret = -EACCES;
     } else if (comps.root_path) {
         /* Don't allow creating files in category. */
@@ -660,14 +820,9 @@ int seadrive_fuse_mkdir (const char *path, mode_t mode)
             return -ENOENT;
     }
 
-    if (comps.spotlight_path) {
-        ret = file_cache_mgr_mkdir_in_root (seaf->file_cache_mgr,
-                                            comps.spotlight_path,
-                                            mode);
-        goto out;
-    }
-
-    if (!comps.repo_type) {
+    if (!comps.account_info) {
+        ret = -EACCES;
+    }else if (!comps.repo_type) {
         /* Root directory */
         ret = -EACCES;
     } else if (comps.root_path) {
@@ -680,7 +835,10 @@ int seadrive_fuse_mkdir (const char *path, mode_t mode)
         } else {
             // Make root dir to create repo
             seaf->last_access_fs_time = (gint64)time(NULL);
-            ret = seaf_sync_manager_create_repo (seaf->sync_mgr, comps.root_path);
+            ret = seaf_sync_manager_create_repo (seaf->sync_mgr,
+                                                 comps.account_info->server,
+                                                 comps.account_info->username,
+                                                 comps.root_path);
             if (ret < 0)
                 ret = -EIO;
         }
@@ -695,7 +853,6 @@ int seadrive_fuse_mkdir (const char *path, mode_t mode)
         ret = repo_mkdir (comps.repo_info->id, comps.repo_path);
     }
 
-out:
     path_comps_free (&comps);
     return ret;
 }
@@ -727,7 +884,7 @@ repo_unlink (const char *repo_id, const char *path)
 
     office_path = NULL;
     if (repo_tree_is_office_lock_file (repo->tree, path, &office_path))
-        seaf_sync_manager_unlock_file_on_server (seaf->sync_mgr, repo->id, office_path);
+        seaf_sync_manager_unlock_file_on_server (seaf->sync_mgr, repo->server, repo->user, repo->id, office_path);
     g_free (office_path);
 
     int rc = repo_tree_unlink (repo->tree, path);
@@ -768,13 +925,9 @@ int seadrive_fuse_unlink (const char *path)
         return -ENOENT;
     }
 
-    if (comps.spotlight_path) {
-        ret = file_cache_mgr_unlink_file_in_root (seaf->file_cache_mgr,
-                                                  comps.spotlight_path);
-        goto out;
-    }
-
-    if (!comps.repo_type) {
+    if (!comps.account_info) {
+        ret = -EACCES;
+    } else if (!comps.repo_type) {
         /* Root directory */
         ret = -EACCES;
     } else if (comps.root_path) {
@@ -796,7 +949,6 @@ int seadrive_fuse_unlink (const char *path)
                                               comps.repo_path);
     }
 
-out:
     path_comps_free (&comps);
     return ret;
 }
@@ -857,13 +1009,9 @@ int seadrive_fuse_rmdir (const char *path)
         return -ENOENT;
     }
 
-    if (comps.spotlight_path) {
-        ret = file_cache_mgr_rmdir_in_root (seaf->file_cache_mgr,
-                                            comps.spotlight_path);
-        goto out;
-    }
-
-    if (!comps.repo_type) {
+    if (!comps.account_info) {
+        ret = -EACCES;
+    } else if (!comps.repo_type) {
         ret = -EACCES;
     } else if (comps.root_path) {
         ret = -EACCES;
@@ -876,7 +1024,10 @@ int seadrive_fuse_rmdir (const char *path)
         if (ret < 0)
             goto out;
 
-        ret = seaf_sync_manager_delete_repo (seaf->sync_mgr, comps.repo_info->id);
+        ret = seaf_sync_manager_delete_repo (seaf->sync_mgr,
+                                            comps.account_info->server,
+                                            comps.account_info->username,
+                                            comps.repo_info->id);
         if (ret < 0)
             ret = -EIO;
         goto out;
@@ -932,6 +1083,8 @@ out:
 }
 
 typedef struct CrossRepoRenameData {
+    char *server;
+    char *user;
     char *repo_id1;
     char *oldpath;
     char *repo_id2;
@@ -944,6 +1097,8 @@ cross_repo_rename_data_free (CrossRepoRenameData *data)
 {
     if (!data)
         return;
+    g_free (data->server);
+    g_free (data->user);
     g_free (data->repo_id1);
     g_free (data->repo_id2);
     g_free (data->oldpath);
@@ -997,7 +1152,9 @@ static void *
 cross_repo_rename_thread (void *vdata)
 {
     CrossRepoRenameData *data = vdata;
-    SeafAccount *account = seaf_repo_manager_get_current_account (seaf->repo_mgr);
+    SeafAccount *account = seaf_repo_manager_get_account (seaf->repo_mgr,
+                                                          data->server,
+                                                          data->user);
     SeafRepo *repo1 = NULL, *repo2 = NULL;
 
     if (!account) {
@@ -1083,6 +1240,8 @@ cross_repo_rename (const char *repo_id1, const char *oldpath,
     }
 
     data = g_new0 (CrossRepoRenameData, 1);
+    data->server = g_strdup (repo1->server);
+    data->user = g_strdup (repo1->user);
     data->repo_id1 = g_strdup(repo_id1);
     data->oldpath = g_strdup(oldpath);
     data->repo_id2 = g_strdup(repo_id2);
@@ -1130,10 +1289,14 @@ int seadrive_fuse_rename (const char *oldpath, const char *newpath)
         goto out;
     }
 
-    if (comps1.spotlight_path && comps2.spotlight_path) {
-        ret = file_cache_mgr_rename_in_root (seaf->file_cache_mgr,
-                                             comps1.spotlight_path,
-                                             comps2.spotlight_path);
+    if (!comps1.account_info || !comps2.account_info) {
+        ret = -EACCES;
+        goto out;
+    }
+
+    if (g_strcmp0 (comps1.account_info->server, comps2.account_info->server) !=0 ||
+        g_strcmp0 (comps1.account_info->username, comps2.account_info->username) != 0) {
+        ret = -EACCES;
         goto out;
     }
 
@@ -1173,7 +1336,10 @@ int seadrive_fuse_rename (const char *oldpath, const char *newpath)
         seaf->last_access_fs_time = (gint64)time(NULL);
 
         // Rename repo
-        ret = seaf_sync_manager_rename_repo (seaf->sync_mgr, comps1.repo_info->id,
+        ret = seaf_sync_manager_rename_repo (seaf->sync_mgr,
+                                             comps1.account_info->server,
+                                             comps1.account_info->username,
+                                             comps1.repo_info->id,
                                              comps2.root_path);
         if (ret < 0)
             ret = -EIO;
@@ -1265,30 +1431,10 @@ seadrive_fuse_open(const char *path, struct fuse_file_info *info)
         return -ENOENT;
     }
 
-    if (comps.spotlight_path) {
-        handle = file_cache_mgr_open_file_in_root (seaf->file_cache_mgr,
-                                                   comps.spotlight_path,
-                                                   info->flags);
-        if (!handle) {
-            ret = -EIO;
-            goto out;
-        }
-
-        info->fh = (uint64_t)handle;
+    if (!comps.account_info) {
+        ret = -EINVAL;
         goto out;
-    }
-
-#ifdef __APPLE__
-#define SPOTLIGHT_INDEXER_NAME "mdworker"
-    struct fuse_context *ctx = fuse_get_context ();
-    char pname[1024];
-    memset (pname, 0, sizeof(pname));
-    proc_name (ctx->pid, pname, sizeof(pname));
-    if (strncmp (pname, SPOTLIGHT_INDEXER_NAME, strlen(SPOTLIGHT_INDEXER_NAME)) == 0)
-        return -EIO;
-#endif  /* __APPLE__ */
-
-    if (!comps.repo_type) {
+    } else if (!comps.repo_type) {
         ret = -EINVAL;
         goto out;
     } else if (comps.root_path) {
@@ -1474,14 +1620,10 @@ seadrive_fuse_truncate (const char *path, off_t length)
         return -ENOENT;
     }
 
-    if (comps.spotlight_path) {
-        ret = file_cache_mgr_truncate_file_in_root (seaf->file_cache_mgr,
-                                                    comps.spotlight_path,
-                                                    length);
+    if (!comps.account_info) {
+        ret = -EINVAL;
         goto out;
-    }
-
-    if (!comps.repo_type) {
+    } else if (!comps.repo_type) {
         ret = -EINVAL;
         goto out;
     } else if (comps.root_path) {
@@ -1563,21 +1705,27 @@ out:
 int
 seadrive_fuse_statfs (const char *path, struct statvfs *buf)
 {
-    SeafAccount *account;
     SeafAccountSpace *space = NULL;
     gint64 total, used;
 
-    account = seaf_repo_manager_get_current_account (seaf->repo_mgr);
-    if (!account) {
+    GList *accounts = NULL, *ptr;
+    SeafAccount *account;
+    accounts = seaf_repo_manager_get_account_list (seaf->repo_mgr);
+    if (!accounts) {
         total = 0;
         used = 0;
-    } else {
+    }
+
+    for (ptr = accounts; ptr; ptr = ptr->next) {
+        account = ptr->data;
         space = seaf_repo_manager_get_account_space (seaf->repo_mgr,
                                                      account->server,
                                                      account->username);
-        total = space->total;
-        used = space->used;
+        total += space->total;
+        used += space->used;
     }
+    if (accounts)
+        g_list_free_full (accounts, (GDestroyNotify)seaf_account_free);
 
     buf->f_namemax = 255;
     buf->f_bsize = 4096;
@@ -1591,7 +1739,6 @@ seadrive_fuse_statfs (const char *path, struct statvfs *buf)
     buf->f_files = buf->f_ffree = 1000000000;
 
     g_free (space);
-    seaf_account_free (account);
     return 0;
 }
 
@@ -1606,10 +1753,6 @@ seadrive_fuse_chmod (const char *path, mode_t mode)
 
     if (parse_fuse_path (path, &comps) < 0) {
         return -ENOENT;
-    }
-
-    if (comps.spotlight_path) {
-        return file_cache_mgr_chmod_in_root (seaf->file_cache_mgr, comps.spotlight_path, mode);
     }
 
     return 0;
@@ -1635,13 +1778,9 @@ seadrive_fuse_utimens (const char *path, const struct timespec tv[2])
         return -ENOENT;
     }
 
-
-#ifdef __APPLE__
-    if (comps.spotlight_path) {
-        ret = file_cache_mgr_utimen_in_root (seaf->file_cache_mgr, comps.spotlight_path, mtime, atime);
+    if (!comps.account_info) {
         goto out;
     }
-#endif
 
     if (comps.root_path != NULL ||
         !comps.repo_type ||
@@ -1705,24 +1844,12 @@ seadrive_fuse_symlink (const char *from, const char *to)
         return -ENOENT;
     }
 
-    if (comps_from.spotlight_path && comps_to.spotlight_path) {
-        return file_cache_mgr_symlink_in_root (seaf->file_cache_mgr,
-                                               comps_from.spotlight_path,
-                                               comps_to.spotlight_path);
-    }
-
     return 0;
 }
 
-#ifdef __APPLE__
-int
-seadrive_fuse_setxattr (const char *path, const char *name, const char *value,
-                        size_t size, int flags, uint32_t position)
-#else
 int
 seadrive_fuse_setxattr (const char *path, const char *name, const char *value,
                         size_t size, int flags)
-#endif
 {
     FusePathComps comps;
 
@@ -1732,12 +1859,6 @@ seadrive_fuse_setxattr (const char *path, const char *name, const char *value,
 
     if (parse_fuse_path (path, &comps) < 0) {
         return -ENOENT;
-    }
-
-    if (comps.spotlight_path) {
-        return file_cache_mgr_setxattr_in_root (seaf->file_cache_mgr,
-                                                comps.spotlight_path,
-                                                name, value, size);
     }
 
     return 0;
@@ -1762,17 +1883,7 @@ seadrive_fuse_getxattr (const char *path, const char *name, char *value, size_t 
         return -ENOENT;
     }
 
-    if (comps.spotlight_path) {
-        return file_cache_mgr_getxattr_in_root (seaf->file_cache_mgr,
-                                                comps.spotlight_path,
-                                                name, value, size);
-    }
-
-#ifdef __APPLE__
-    return -ENOSYS;
-#else
     return -ENODATA;
-#endif
 }
 
 int

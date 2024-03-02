@@ -185,10 +185,11 @@ load_account_from_file (const char *account_file)
     /* Default false. */
     is_pro = g_key_file_get_boolean (key_file, ACCOUNT_GROUP, ACCOUNT_IS_PRO, NULL);
 
-    seaf_repo_manager_switch_current_account (seaf->repo_mgr,
-                                              server, username,
-                                              token,
-                                              is_pro);
+    seaf_repo_manager_add_account (seaf->repo_mgr,
+                                   server, username,
+                                   token,
+                                   username,
+                                   is_pro);
 
 out:
     g_free (server);

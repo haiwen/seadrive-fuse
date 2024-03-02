@@ -481,7 +481,17 @@ seafile_session_unmount (SeafileSession *session)
     /* On Linux and Mac OS, the mount point is not unmounted. The GUI has to
      * unmount the mount point before starting seadrive on next start up.
      */
-    seaf_repo_manager_flush_current_repo_journals (session->repo_mgr);
+    GList *accounts = NULL, *ptr;
+    SeafAccount *account;
+    accounts = seaf_repo_manager_get_account_list (seaf->repo_mgr);
+    if (!accounts) {
+        return 0;
+    }
+    for (ptr = accounts; ptr; ptr = ptr->next) {
+        account = ptr->data;
+        seaf_repo_manager_flush_account_repo_journals (session->repo_mgr, account->server, account->username);
+    }
 
+    g_list_free_full (accounts, (GDestroyNotify)seaf_account_free);
     return 0;
 }

@@ -495,12 +495,6 @@ fetch_file_worker (gpointer data, gpointer user_data)
 
     file_key = g_strdup (file_handle->cached_file->file_key);
 
-    server_info = seaf_sync_manager_get_server_info (seaf->sync_mgr);
-    if (!server_info) {
-        seaf_warning ("Failed to get current server info.\n");
-        goto out;
-    }
-
     key_comps = g_strsplit (file_handle->cached_file->file_key, "/", 2);
     repo_id = key_comps[0];
     file_path = key_comps[1];
@@ -514,6 +508,12 @@ fetch_file_worker (gpointer data, gpointer user_data)
     }
 
     have_invisible = seaf_repo_manager_include_invisible_perm (seaf->repo_mgr, repo->id);
+
+    server_info = seaf_sync_manager_get_server_info (seaf->sync_mgr, repo->server, repo->user);
+    if (!server_info) {
+        seaf_warning ("Failed to get current server info.\n");
+        goto out;
+    }
 
     if (repo->encrypted && repo->is_passwd_set)
         file_handle->crypt = seafile_crypt_new (repo->enc_version, repo->enc_key, repo->enc_iv);
@@ -1110,15 +1110,16 @@ file_cache_mgr_close_file_handle (CachedFileHandle *file_handle)
 #define RANDOM_READ_THRESHOLD 100000 /* 100KB */
 
 static gssize
-get_file_range_from_server (const char *repo_id, const char *path, char *buf,
+get_file_range_from_server (const char *server, const char *user,
+                            const char *repo_id, const char *path, char *buf,
                             guint64 offset, size_t size)
 {
     seaf_debug ("Get file range %"G_GUINT64_FORMAT"-%"G_GUINT64_FORMAT" of file %s/%s.\n",
                 offset, offset+size-1, repo_id, path);
 
-    SeafAccount *account = seaf_repo_manager_get_current_account (seaf->repo_mgr);
+    SeafAccount *account = seaf_repo_manager_get_account (seaf->repo_mgr, server, user);
     if (!account) {
-        seaf_warning ("Failed to get current account.\n");
+        seaf_warning ("Failed to get account.\n");
         return -1;
     }
 
@@ -1148,6 +1149,7 @@ file_cache_mgr_read (FileCacheMgr *mgr, CachedFileHandle *handle,
     SeafStat st;
     gssize ret;
     int wait_time = 0;
+    SeafRepo *repo = NULL;
 
     ondisk_path = cached_file_ondisk_path (file);
 
@@ -1158,6 +1160,13 @@ file_cache_mgr_read (FileCacheMgr *mgr, CachedFileHandle *handle,
     }
 
     file_cache_mgr_get_file_info_from_handle (mgr, handle, &repo_id, &path);
+
+    repo = seaf_repo_manager_get_repo (seaf->repo_mgr, repo_id);
+    if (!repo) {
+        seaf_warning ("Failed to get repo %s\n", repo_id);
+        ret = -EIO;
+        goto out;
+    }
 
     /* Wait until the intended region is cached. */
     while (1) {
@@ -1178,7 +1187,7 @@ file_cache_mgr_read (FileCacheMgr *mgr, CachedFileHandle *handle,
 
         if ((offset > (guint64)st.st_size) &&
             (offset - (guint64)st.st_size > RANDOM_READ_THRESHOLD)) {
-            ret = get_file_range_from_server (repo_id, path, buf, offset, size);
+            ret = get_file_range_from_server (repo->server, repo->user, repo_id, path, buf, offset, size);
             goto out;
         }
 
@@ -1319,7 +1328,7 @@ file_cache_mgr_read_by_path (FileCacheMgr *mgr,
 
         if ((offset > (guint64)st.st_size) &&
             (offset - (guint64)st.st_size > RANDOM_READ_THRESHOLD)) {
-            ret = get_file_range_from_server (repo_id, path, buf, offset, size);
+            ret = get_file_range_from_server (repo->server, repo->user, repo_id, path, buf, offset, size);
             goto out;
         }
 
@@ -2580,79 +2589,6 @@ file_cache_mgr_is_fetching_file (FileCacheMgr *mgr)
     return (g_hash_table_size(mgr->priv->cache_tasks) != 0);
 }
 
-int
-file_cache_mgr_create_file_in_root (FileCacheMgr *mgr,
-                                    const char *path,
-                                    unsigned long mode)
-{
-    char *ondisk_path = NULL, *parent_dir = NULL;
-    SeafAccount *account;
-    int ret = 0;
-
-    account = seaf_repo_manager_get_current_account (seaf->repo_mgr);
-    if (!account) {
-        return -ENOENT;
-    }
-
-    ondisk_path = g_build_filename (mgr->priv->base_path, "root",
-                                    account->unique_id, path, NULL);
-    parent_dir = g_path_get_dirname (ondisk_path);
-
-    if (checkdir_with_mkdir (parent_dir) < 0) {
-        seaf_warning ("Failed to create dir %s: %s\n", parent_dir, strerror(errno));
-        ret = (-errno);
-        goto out;
-    }
-
-    int fd = open (ondisk_path, O_CREAT, (mode_t)mode);
-    if (fd < 0) {
-        seaf_warning ("Failed to create file %s: %s\n", ondisk_path, strerror(errno));
-        ret = (-errno);
-        goto out;
-    }
-
-    close(fd);
-
-out:
-    g_free (ondisk_path);
-    g_free (parent_dir);
-    seaf_account_free (account);
-    return ret;
-}
-
-CachedFileHandle *
-file_cache_mgr_open_file_in_root (FileCacheMgr *mgr, const char *path, int flags)
-{
-    char *ondisk_path;
-    SeafAccount *account;
-    CachedFileHandle *handle = NULL;
-
-    account = seaf_repo_manager_get_current_account (seaf->repo_mgr);
-    if (!account) {
-        return NULL;
-    }
-
-    ondisk_path = g_build_filename (mgr->priv->base_path, "root",
-                                    account->unique_id, path, NULL);
-
-    int fd = seaf_util_open (ondisk_path, flags);
-    if (fd < 0) {
-        seaf_warning ("Failed to open %s: %s.\n", ondisk_path, strerror(errno));
-        goto out;
-    }
-
-    handle = cached_file_handle_new ();
-    handle->fd = fd;
-    if (flags & O_RDONLY)
-        handle->is_readonly = TRUE;
-    handle->is_in_root = TRUE;
-
-out:
-    g_free (ondisk_path);
-    seaf_account_free (account);
-    return handle;
-}
-
 gssize
 file_cache_mgr_read_file_in_root (FileCacheMgr *mgr, CachedFileHandle *handle,
                                   char *buf, size_t size, off_t offset)
@@ -2677,57 +2613,6 @@ file_cache_mgr_read_file_in_root (FileCacheMgr *mgr, CachedFileHandle *handle,
 
 out:
     pthread_mutex_unlock (&handle->lock);
-    return ret;
-}
-
-gssize
-file_cache_mgr_read_file_in_root_by_path (FileCacheMgr *mgr,
-                                          const char *path,
-                                          char *buf, size_t size, off_t offset)
-{
-    SeafAccount *account = NULL;
-    char *ondisk_path = NULL;
-    int fd;
-    gint64 rc;
-    gssize ret = 0;
-
-    account = seaf_repo_manager_get_current_account (seaf->repo_mgr);
-    if (!account) {
-        return -ENOENT;
-    }
-
-    ondisk_path = g_build_filename (mgr->priv->base_path, "root",
-                                    account->unique_id, path, NULL);
-
-    fd = seaf_util_open (ondisk_path, O_RDONLY);
-    if (!fd) {
-        seaf_warning ("Failed to open file %s: %s.\n",
-                      path, strerror(errno));
-        ret = -EIO;
-        goto out;
-    }
-
-    rc = seaf_util_lseek (fd, offset, SEEK_SET);
-    if (rc < 0) {
-        seaf_warning ("Failed to lseek file: %s.\n", strerror(errno));
-        ret = (-errno);
-        close (fd);
-        goto out;
-    }
-
-    ret = readn (fd, buf, size);
-    if (ret < 0) {
-        seaf_warning ("Failed to read file: %s.\n", strerror (errno));
-        ret = (-errno);
-        close (fd);
-        goto out;
-    }
-
-    close (fd);
-
-out:
-    seaf_account_free (account);
-    g_free (ondisk_path);
     return ret;
 }
 
@@ -2758,221 +2643,8 @@ out:
     return ret;
 }
 
-gssize
-file_cache_mgr_write_file_in_root_by_path (FileCacheMgr *mgr,
-                                           const char *path,
-                                           const char *buf, size_t size, off_t offset)
-{
-    SeafAccount *account = NULL;
-    char *ondisk_path = NULL;
-    int fd;
-    gssize ret = 0;
-
-    account = seaf_repo_manager_get_current_account (seaf->repo_mgr);
-    if (!account) {
-        return -ENOENT;
-    }
-
-    ondisk_path = g_build_filename (mgr->priv->base_path, "root",
-                                    account->unique_id, path, NULL);
-
-    fd = seaf_util_open (ondisk_path, O_WRONLY);
-    if (!fd) {
-        seaf_warning ("Failed to open file %s: %s.\n",
-                      path, strerror(errno));
-        ret = -EIO;
-        goto out;
-    }
-
-    gint64 rc = seaf_util_lseek (fd, offset, SEEK_SET);
-    if (rc < 0) {
-        seaf_warning ("Failed to lseek file: %s.\n", strerror(errno));
-        ret = (-errno);
-        close (fd);
-        goto out;
-    }
-
-    ret = writen (fd, buf, size);
-    if (ret < 0) {
-        seaf_warning ("Failed to write file: %s.\n", strerror (errno));
-        ret = (-errno);
-        close (fd);
-        goto out;
-    }
-
-    close (fd);
-
-out:
-    seaf_account_free (account);
-    g_free (ondisk_path);
-    return ret;
-}
-
 int
-file_cache_mgr_truncate_file_in_root (FileCacheMgr *mgr,
-                                      const char *path,
-                                      off_t length)
-{
-    char *ondisk_path;
-    SeafAccount *account;
-    int ret = 0;
-
-    account = seaf_repo_manager_get_current_account (seaf->repo_mgr);
-    if (!account) {
-        return (-ENOENT);
-    }
-
-    ondisk_path = g_build_filename (mgr->priv->base_path, "root",
-                                    account->unique_id, path, NULL);
-
-    ret = seaf_truncate (ondisk_path, length);
-    if (ret < 0) {
-        seaf_warning ("Failed to truncate %s: %s\n", ondisk_path, strerror(errno));
-        ret = (-errno);
-    }
-
-    g_free (ondisk_path);
-    seaf_account_free (account);
-    return ret;
-}
-
-int
-file_cache_mgr_getattr_in_root (FileCacheMgr *mgr, const char *path, SeafStat *st)
-{
-    char *ondisk_path;
-    SeafAccount *account;
-    int ret = 0;
-
-    account = seaf_repo_manager_get_current_account (seaf->repo_mgr);
-    if (!account) {
-        return (-ENOENT);
-    }
-
-    ondisk_path = g_build_filename (mgr->priv->base_path, "root",
-                                    account->unique_id, path, NULL);
-
-    ret = seaf_stat (ondisk_path, st);
-    if (ret < 0) {
-        seaf_debug ("Failed to stat %s: %s\n", ondisk_path, strerror(errno));
-        ret = (-errno);
-    }
-
-    g_free (ondisk_path);
-    seaf_account_free (account);
-    return ret;
-}
-
-int
-file_cache_mgr_mkdir_in_root (FileCacheMgr *mgr, const char *path, unsigned long mode)
-{
-    char *ondisk_path;
-    SeafAccount *account;
-    int ret = 0;
-
-    account = seaf_repo_manager_get_current_account (seaf->repo_mgr);
-    if (!account) {
-        return (-ENOENT);
-    }
-
-    ondisk_path = g_build_filename (mgr->priv->base_path, "root",
-                                    account->unique_id, path, NULL);
-
-    if (checkdir_with_mkdir (ondisk_path) < 0) {
-        seaf_warning ("Failed to create dir %s: %s.\n", ondisk_path, strerror(errno));
-        ret = (-errno);
-    }
-
-    g_free (ondisk_path);
-    seaf_account_free (account);
-    return ret;
-}
-
-int
-file_cache_mgr_rmdir_in_root (FileCacheMgr *mgr, const char *path)
-{
-    char *ondisk_path;
-    SeafAccount *account;
-    int ret = 0;
-
-    account = seaf_repo_manager_get_current_account (seaf->repo_mgr);
-    if (!account) {
-        return (-ENOENT);
-    }
-
-    ondisk_path = g_build_filename (mgr->priv->base_path, "root",
-                                    account->unique_id, path, NULL);
-
-    ret = seaf_util_rmdir (ondisk_path);
-    if (ret < 0) {
-        seaf_warning ("Failed to rmdir %s: %s.\n", ondisk_path, strerror(errno));
-        ret = (-errno);
-    }
-
-    g_free (ondisk_path);
-    seaf_account_free (account);
-    return ret;
-}
-
-int
-file_cache_mgr_unlink_file_in_root (FileCacheMgr *mgr, const char *path)
-{
-    char *ondisk_path;
-    SeafAccount *account;
-    int ret = 0;
-
-    account = seaf_repo_manager_get_current_account (seaf->repo_mgr);
-    if (!account) {
-        return (-ENOENT);
-    }
-
-    ondisk_path = g_build_filename (mgr->priv->base_path, "root",
-                                    account->unique_id, path, NULL);
-
-    ret = seaf_util_unlink (ondisk_path);
-    if (ret < 0) {
-        seaf_warning ("Failed to unlink %s: %s\n", ondisk_path, strerror(errno));
-        ret = (-errno);
-    }
-
-    g_free (ondisk_path);
-    seaf_account_free (account);
-    return ret;
-}
-
-int
-file_cache_mgr_stat_file_in_root (FileCacheMgr *mgr, const char *path, RepoTreeStat *st)
-{
-    char *ondisk_path;
-    SeafAccount *account;
-    SeafStat file_st;
-    int ret = 0;
-
-    account = seaf_repo_manager_get_current_account (seaf->repo_mgr);
-    if (!account) {
-        return -ENOENT;
-    }
-
-    ondisk_path = g_build_filename (mgr->priv->base_path, "root",
-                                    account->unique_id, path, NULL);
-
-    ret = seaf_stat (ondisk_path, &file_st);
-    if (ret < 0) {
-        ret = (-errno);
-        goto out;
-    }
-
-    st->mtime = file_st.st_mtime;
-    st->size = file_st.st_size;
-    st->mode = file_st.st_mode;
-
-out:
-    g_free (ondisk_path);
-    seaf_account_free (account);
-    return ret;
-}
-
-int
-file_cache_mgr_readdir_in_root (FileCacheMgr *mgr, const char *path, GHashTable *dirents)
+file_cache_mgr_readdir_in_root (FileCacheMgr *mgr, const char *server, const char *user, const char *path, GHashTable *dirents)
 {
     char *ondisk_path;
     SeafAccount *account;
@@ -2984,7 +2656,7 @@ file_cache_mgr_readdir_in_root (FileCacheMgr *mgr, const char *path, GHashTable 
     RepoTreeStat *st;
     int ret = 0;
 
-    account = seaf_repo_manager_get_current_account (seaf->repo_mgr);
+    account = seaf_repo_manager_get_account (seaf->repo_mgr, server, user);
     if (!account) {
         return (-ENOENT);
     }
@@ -3022,100 +2694,6 @@ out:
 }
 
 int
-file_cache_mgr_rename_in_root (FileCacheMgr *mgr, const char *oldpath, const char *newpath)
-{
-    char *ondisk_oldpath, *ondisk_newpath, *new_path_parent;
-    SeafAccount *account;
-    int ret = 0;
-
-    account = seaf_repo_manager_get_current_account (seaf->repo_mgr);
-    if (!account) {
-        return -ENOENT;
-    }
-
-    ondisk_oldpath = g_build_filename (mgr->priv->base_path, "root",
-                                       account->unique_id, oldpath, NULL);
-    ondisk_newpath = g_build_filename (mgr->priv->base_path, "root",
-                                       account->unique_id, newpath, NULL);
-
-    new_path_parent = g_path_get_dirname (ondisk_newpath);
-    if (checkdir_with_mkdir (new_path_parent) < 0) {
-        seaf_warning ("Failed to create dir %s: %s\n", new_path_parent, strerror(errno));
-        ret = (-errno);
-        goto out;
-    }
-
-    ret = seaf_util_rename (ondisk_oldpath, ondisk_newpath);
-    if (ret < 0) {
-        seaf_warning ("Failed to rename %s to %s: %s\n", ondisk_oldpath, ondisk_newpath, strerror(errno));
-        ret = (-errno);
-    }
-
-out:
-    g_free (ondisk_oldpath);
-    g_free (ondisk_newpath);
-    g_free (new_path_parent);
-    seaf_account_free (account);
-    return ret;
-}
-
-int
-file_cache_mgr_chmod_in_root (FileCacheMgr *mgr, const char *path, mode_t mode)
-{
-    char *ondisk_path;
-    SeafAccount *account;
-    int ret = 0;
-
-    account = seaf_repo_manager_get_current_account (seaf->repo_mgr);
-    if (!account) {
-        return -ENOENT;
-    }
-
-    ondisk_path = g_build_filename (mgr->priv->base_path, "root",
-                                    account->unique_id, path, NULL);
-
-    ret = chmod (ondisk_path, mode);
-    if (ret < 0) {
-        seaf_warning ("Failed to chmod %s: %s\n", ondisk_path, strerror(errno));
-        ret = (-errno);
-    }
-
-    g_free (ondisk_path);
-    seaf_account_free (account);
-    return ret;
-}
-
-int
-file_cache_mgr_utimen_in_root (FileCacheMgr *mgr, const char *path, time_t mtime, time_t atime)
-{
-    char *ondisk_path;
-    SeafAccount *account;
-    struct utimbuf times;
-    int ret = 0;
-
-    account = seaf_repo_manager_get_current_account (seaf->repo_mgr);
-    if (!account) {
-        return -ENOENT;
-    }
-
-    ondisk_path = g_build_filename (mgr->priv->base_path, "root",
-                                    account->unique_id, path, NULL);
-
-    times.actime = atime;
-    times.modtime = mtime;
-
-    ret = utime (ondisk_path, &times);
-    if (ret < 0) {
-        seaf_warning ("Failed to utimen %s: %s\n", ondisk_path, strerror(errno));
-        ret = (-errno);
-    }
-
-    g_free (ondisk_path);
-    seaf_account_free (account);
-    return ret;
-}
-
-int
 file_cache_mgr_utimen (FileCacheMgr *mgr, const char *repo_id,
                        const char *path, time_t mtime, time_t atime)
 {
@@ -3132,89 +2710,6 @@ file_cache_mgr_utimen (FileCacheMgr *mgr, const char *repo_id,
     }
 
     g_free (ondisk_path);
-    return ret;
-}
-
-int
-file_cache_mgr_symlink_in_root (FileCacheMgr *mgr, const char *from, const char *to)
-{
-    char *ondisk_from, *ondisk_to;
-    SeafAccount *account;
-    int ret = 0;
-
-    account = seaf_repo_manager_get_current_account (seaf->repo_mgr);
-    if (!account) {
-        return -ENOENT;
-    }
-
-    ondisk_from = g_build_filename (mgr->priv->base_path, "root",
-                                    account->unique_id, from, NULL);
-    ondisk_to = g_build_filename (mgr->priv->base_path, "root",
-                                  account->unique_id, to, NULL);
-
-    ret = symlink (ondisk_from, ondisk_to);
-    if (ret < 0) {
-        seaf_warning ("Failed to symlink %s to %s: %s\n", ondisk_from, ondisk_to, strerror(errno));
-        ret = (-errno);
-    }
-
-    g_free (ondisk_from);
-    g_free (ondisk_to);
-    seaf_account_free (account);
-    return ret;
-}
-
-int
-file_cache_mgr_setxattr_in_root (FileCacheMgr *mgr,
-                                 const char *path, const char *name, const char *value, size_t size)
-{
-    char *ondisk_path;
-    SeafAccount *account;
-    int ret = 0;
-
-    account = seaf_repo_manager_get_current_account (seaf->repo_mgr);
-    if (!account) {
-        return -ENOENT;
-    }
-
-    ondisk_path = g_build_filename (mgr->priv->base_path, "root",
-                                    account->unique_id, path, NULL);
-
-    ret = seaf_setxattr (ondisk_path, name, value, size);
-    if (ret < 0) {
-        seaf_warning ("Failed to setxattr %s %s: %s\n", ondisk_path, name, strerror(errno));
-        ret = (-errno);
-    }
-
-    g_free (ondisk_path);
-    seaf_account_free (account);
-    return ret;
-}
-
-int
-file_cache_mgr_getxattr_in_root (FileCacheMgr *mgr,
-                                 const char *path, const char *name, char *value, size_t size)
-{
-    char *ondisk_path;
-    SeafAccount *account;
-    int ret = 0;
-
-    account = seaf_repo_manager_get_current_account (seaf->repo_mgr);
-    if (!account) {
-        return -ENOENT;
-    }
-
-    ondisk_path = g_build_filename (mgr->priv->base_path, "root",
-                                    account->unique_id, path, NULL);
-
-    ret = seaf_getxattr (ondisk_path, name, value, size);
-    if (ret < 0) {
-        seaf_debug ("Failed to getxattr %s %s: %s\n", ondisk_path, name, strerror(errno));
-        ret = (-errno);
-    }
-
-    g_free (ondisk_path);
-    seaf_account_free (account);
     return ret;
 }
 
@@ -3381,7 +2876,10 @@ out:
 #endif
 
 int
-file_cache_mgr_cancel_download (FileCacheMgr *mgr, const char *full_file_path,
+file_cache_mgr_cancel_download (FileCacheMgr *mgr,
+                                const char *server,
+                                const char *user,
+                                const char *full_file_path,
                                 GError **error)
 {
     char **tokens = NULL;
@@ -3404,7 +2902,7 @@ file_cache_mgr_cancel_download (FileCacheMgr *mgr, const char *full_file_path,
     repo_name = tokens[1];
     file_path = tokens[2];
     display_name = g_build_path ("/", category, repo_name, NULL);
-    repo_id = seaf_repo_manager_get_repo_id_by_name (seaf->repo_mgr, repo_name);
+    repo_id = seaf_repo_manager_get_repo_id_by_name (seaf->repo_mgr, server, user, repo_name);
     g_free (display_name);
     if (!repo_id) {
         g_set_error (error, SEAFILE_DOMAIN, SEAF_ERR_BAD_ARGS,
