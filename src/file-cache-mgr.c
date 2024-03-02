@@ -417,6 +417,29 @@ mark_file_cached (const char *ondisk_path, RepoTreeStat *st)
     return 0;
 }
 
+static int
+get_file_from_server (HttpServerInfo *server_info, SeafRepo *repo,
+                      const char *path,
+                      gint64 block_offset,
+                      CachedFileHandle *handle)
+{
+    int http_status = 200;
+    if (http_tx_manager_get_file (seaf->http_tx_mgr, server_info->host,
+                                  server_info->use_fileserver_port, repo->token,
+                                  repo->id,
+                                  path, block_offset,
+                                  get_block_cb, handle,
+                                  &http_status) < 0) {
+        if (!handle->fetch_canceled && !handle->cached_file->force_canceled)
+            seaf_message ("Failed to get file %s from server\n", path);
+        if (handle->notified_download_start)
+            send_file_download_notification ("file-download.stop", repo->id, path);
+        return -1;
+    }
+
+    return 0;
+}
+
 static void
 calculate_block_offset (Seafile *file, gint64 *block_map, CachedFileHandle *handle,
                         int *block_offset, gint64 *file_offset)
@@ -468,6 +491,7 @@ fetch_file_worker (gpointer data, gpointer user_data)
     int n_blocks = 0;
     int block_offset = 0;
     gint64 file_offset = 0;
+    gboolean have_invisible = FALSE;
 
     file_key = g_strdup (file_handle->cached_file->file_key);
 
@@ -488,6 +512,8 @@ fetch_file_worker (gpointer data, gpointer user_data)
         seaf_warning ("Failed to get repo %.8s.\n", repo_id);
         goto out;
     }
+
+    have_invisible = seaf_repo_manager_include_invisible_perm (seaf->repo_mgr, repo->id);
 
     if (repo->encrypted && repo->is_passwd_set)
         file_handle->crypt = seafile_crypt_new (repo->enc_version, repo->enc_key, repo->enc_iv);
@@ -571,6 +597,11 @@ fetch_file_worker (gpointer data, gpointer user_data)
         seaf_util_lseek (file_handle->fd, file_offset, SEEK_SET);
     }
 
+    if (have_invisible && !file_handle->crypt) {
+        if (get_file_from_server (server_info, repo, file_path, block_offset, file_handle) < 0) {
+            goto out;
+        }
+    }
     int i = block_offset;
     if (file_handle->crypt) {
         for (; i < file->n_blocks; i++) {
