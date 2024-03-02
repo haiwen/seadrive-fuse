@@ -4878,12 +4878,14 @@ http_tx_manager_get_file (HttpTxManager *mgr, const char *host,
 
     curl = conn->curl;
 
+    char *esc_path = g_uri_escape_string(path, NULL, FALSE);
     if (!use_fileserver_port)
         url = g_strdup_printf ("%s/seafhttp/repo/%s/file/?path=%s&offset=%"G_GINT64_FORMAT"",
-                               host, repo_id, path, block_offset);
+                               host, repo_id, esc_path, block_offset);
     else
         url = g_strdup_printf ("%s/repo/%s/file/?path=%s&offset=%"G_GINT64_FORMAT"",
-                               host, repo_id, path, block_offset);
+                               host, repo_id, esc_path, block_offset);
+    g_free (esc_path);
 
     if (http_get (curl, url, token, http_status, NULL, NULL,
                   get_blk_cb, user_data, TRUE, HTTP_TIMEOUT_SEC, NULL) < 0) {
