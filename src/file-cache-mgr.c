@@ -601,43 +601,44 @@ fetch_file_worker (gpointer data, gpointer user_data)
         if (get_file_from_server (server_info, repo, file_path, block_offset, file_handle) < 0) {
             goto out;
         }
-    }
-    int i = block_offset;
-    if (file_handle->crypt) {
-        for (; i < file->n_blocks; i++) {
-            http_status = 200;
-            memset (&file_handle->blk_buffer, 0, sizeof(file_handle->blk_buffer));
-            if (http_tx_manager_get_block (seaf->http_tx_mgr, server_info->host,
-                                           server_info->use_fileserver_port, repo->token,
-                                           repo->id, file->blk_sha1s[i],
-                                           get_encrypted_block_cb, file_handle,
-                                           &http_status) < 0) {
-                if (!file_handle->fetch_canceled && !file_handle->cached_file->force_canceled)
-                    seaf_warning ("Failed to get block %s of %s from server %s.\n",
-                                  file->blk_sha1s[i], file_key, server_info->host);
-                seaf_sync_manager_delete_active_path (seaf->sync_mgr, repo_id, file_path);
-                if (file_handle->notified_download_start)
-                    send_file_download_notification ("file-download.stop", repo_id, file_path);
-                goto out;
-            }
-            fill_block (file_handle->blk_buffer.content, file_handle->blk_buffer.size, 1, file_handle);
-            g_free (file_handle->blk_buffer.content);
-        }
     } else {
-        for (; i < file->n_blocks; i++) {
-            http_status = 200;
-            if (http_tx_manager_get_block (seaf->http_tx_mgr, server_info->host,
-                                           server_info->use_fileserver_port, repo->token,
-                                           repo->id, file->blk_sha1s[i],
-                                           get_block_cb, file_handle,
-                                           &http_status) < 0) {
-                if (!file_handle->fetch_canceled && !file_handle->cached_file->force_canceled)
-                    seaf_warning ("Failed to get block %s of %s from server %s.\n",
-                                  file->blk_sha1s[i], file_key, server_info->host);
-                seaf_sync_manager_delete_active_path (seaf->sync_mgr, repo_id, file_path);
-                if (file_handle->notified_download_start)
-                    send_file_download_notification ("file-download.stop", repo_id, file_path);
-                goto out;
+        int i = block_offset;
+        if (file_handle->crypt) {
+            for (; i < file->n_blocks; i++) {
+                http_status = 200;
+                memset (&file_handle->blk_buffer, 0, sizeof(file_handle->blk_buffer));
+                if (http_tx_manager_get_block (seaf->http_tx_mgr, server_info->host,
+                                               server_info->use_fileserver_port, repo->token,
+                                               repo->id, file->blk_sha1s[i],
+                                               get_encrypted_block_cb, file_handle,
+                                               &http_status) < 0) {
+                    if (!file_handle->fetch_canceled && !file_handle->cached_file->force_canceled)
+                        seaf_warning ("Failed to get block %s of %s from server %s.\n",
+                                      file->blk_sha1s[i], file_key, server_info->host);
+                    seaf_sync_manager_delete_active_path (seaf->sync_mgr, repo_id, file_path);
+                    if (file_handle->notified_download_start)
+                        send_file_download_notification ("file-download.stop", repo_id, file_path);
+                    goto out;
+                }
+                fill_block (file_handle->blk_buffer.content, file_handle->blk_buffer.size, 1, file_handle);
+                g_free (file_handle->blk_buffer.content);
+            }
+        } else {
+            for (; i < file->n_blocks; i++) {
+                http_status = 200;
+                if (http_tx_manager_get_block (seaf->http_tx_mgr, server_info->host,
+                                               server_info->use_fileserver_port, repo->token,
+                                               repo->id, file->blk_sha1s[i],
+                                               get_block_cb, file_handle,
+                                               &http_status) < 0) {
+                    if (!file_handle->fetch_canceled && !file_handle->cached_file->force_canceled)
+                        seaf_warning ("Failed to get block %s of %s from server %s.\n",
+                                      file->blk_sha1s[i], file_key, server_info->host);
+                    seaf_sync_manager_delete_active_path (seaf->sync_mgr, repo_id, file_path);
+                    if (file_handle->notified_download_start)
+                        send_file_download_notification ("file-download.stop", repo_id, file_path);
+                    goto out;
+                }
             }
         }
     }
