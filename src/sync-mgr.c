@@ -2406,7 +2406,10 @@ get_repo_sync_token_cb (HttpAPIGetResult *result, void *user_data)
 
     if (!result->success) {
         task->tx_error_code = result->error_code;
-        seaf_sync_manager_set_task_error (task, SYNC_ERROR_FETCH);
+        if (task->tx_error_code == HTTP_TASK_ERR_FORBIDDEN)
+            seaf_sync_manager_set_task_error (task, SYNC_ERROR_ACCESS_DENIED);
+        else
+            seaf_sync_manager_set_task_error (task, SYNC_ERROR_FETCH);
         return;
     }
 
