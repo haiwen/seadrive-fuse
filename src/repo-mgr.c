@@ -2788,7 +2788,6 @@ repo_info_copy (RepoInfo *info)
     ret->is_readonly = info->is_readonly;
     ret->is_corrupted = info->is_corrupted;
     ret->type = info->type;
-    ret->perm_unsyncable = info->perm_unsyncable;
     return ret;
 }
 
@@ -3643,27 +3642,6 @@ update_repo_to_account (sqlite3 *db,
     sqlite3_free (sql);
 
     return ret;
-}
-
-int
-seaf_repo_manager_set_if_repo_unsyncable (SeafRepoManager *mgr,
-                                          const char *repo_id,
-                                          gboolean perm_unsyncable)
-{
-    GHashTable *repo_infos = NULL;
-    RepoInfo *info = NULL;
-
-    pthread_rwlock_wrlock (&mgr->priv->account_lock);
-
-    repo_infos = mgr->priv->repo_infos;
-
-    info = g_hash_table_lookup (repo_infos, repo_id);
-    if (info)
-        info->perm_unsyncable = perm_unsyncable;
-
-    pthread_rwlock_unlock (&mgr->priv->account_lock);
-
-    return 0;
 }
 
 void

@@ -393,7 +393,6 @@ struct _RepoInfo {
     char *display_name;
     RepoType type;
     gint64 mtime;
-    gboolean perm_unsyncable;
 };
 typedef struct _RepoInfo RepoInfo;
 
@@ -438,11 +437,6 @@ seaf_repo_manager_get_repo_id_by_name (SeafRepoManager *mgr,
 char *
 seaf_repo_manager_get_repo_display_name (SeafRepoManager *mgr,
                                          const char *id);
-
-int
-seaf_repo_manager_set_if_repo_unsyncable (SeafRepoManager *mgr,
-                                          const char *repo_id,
-                                          gboolean perm_unsyncable);
 
 int
 seaf_repo_manager_update_account_repos (SeafRepoManager *mgr,

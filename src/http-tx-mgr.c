@@ -2561,7 +2561,6 @@ check_permission (HttpTxTask *task, Connection *conn)
     json_t *rsp_obj = NULL, *reason = NULL, *unsyncable_path = NULL;
     const char *reason_str = NULL, *unsyncable_path_str = NULL;
     json_error_t jerror;
-    gboolean perm_unsyncable = FALSE;
 
     curl = conn->curl;
 
@@ -2623,12 +2622,9 @@ check_permission (HttpTxTask *task, Connection *conn)
             unsyncable_path_str = json_string_value (unsyncable_path);
             if (unsyncable_path_str)
                 task->unsyncable_path = g_strdup (unsyncable_path_str);
-            perm_unsyncable = TRUE;
         } else {
             task->error = HTTP_TASK_ERR_FORBIDDEN;
         }
-        seaf_repo_manager_set_if_repo_unsyncable (seaf->repo_mgr, task->repo_id,
-                                                  perm_unsyncable);
         ret = -1;
     }
 

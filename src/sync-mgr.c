@@ -80,8 +80,8 @@ struct _SyncInfo {
 
     gboolean   in_sync;         /* set to FALSE when sync state is DONE or ERROR */
 
-    gint       perm_err_cnt;
-    gboolean   in_perm_error;        /* set to TRUE if err_cnt >= 3 */
+    gint       err_cnt;
+    gboolean   in_error;        /* set to TRUE if err_cnt >= 3 */
 
     gboolean del_confirmation_pending;
 };
@@ -818,15 +818,30 @@ notify_sync (SeafRepo *repo)
 
 #define IN_ERROR_THRESHOLD 3
 
+static gboolean
+is_permanent_error (SyncTask *task)
+{
+    if (task->error == SYNC_ERROR_ACCESS_DENIED ||
+        task->error == SYNC_ERROR_NO_WRITE_PERMISSION ||
+        task->error == SYNC_ERROR_FOLDER_PERM_DENIED ||
+        task->error == SYNC_ERROR_PERM_NOT_SYNCABLE ||
+        task->error == SYNC_ERROR_QUOTA_FULL ||
+        task->error == SYNC_ERROR_TOO_MANY_FILES ||
+        task->error == SYNC_ERROR_BLOCK_MISSING) {
+        return TRUE;
+    }
+    return FALSE;
+}
+
 static void
 update_sync_info_error_state (SyncTask *task, int new_state)
 {
     SyncInfo *info = task->info;
 
-    if (new_state == SYNC_STATE_ERROR && task->error == SYNC_ERROR_ACCESS_DENIED) {
-        info->perm_err_cnt++;
-        if (info->perm_err_cnt == IN_ERROR_THRESHOLD) {
-            info->in_perm_error = TRUE;
+    if (new_state == SYNC_STATE_ERROR && is_permanent_error (task)) {
+        info->err_cnt++;
+        if (info->err_cnt >= IN_ERROR_THRESHOLD) {
+            info->in_error = TRUE;
             /* Only delete a local repo after 3 consecutive permission errors.
              * This prevents mistakenly re-syncing a repo on temporary database
              * errors in the server.
@@ -839,13 +854,13 @@ update_sync_info_error_state (SyncTask *task, int new_state)
              */
             /* seaf_repo_manager_mark_repo_deleted (seaf->repo_mgr, task->repo, FALSE); */
         }
-    } else if (info->perm_err_cnt > 0) {
-        info->perm_err_cnt = 0;
-        info->in_perm_error = FALSE;
+    } else if (info->err_cnt > 0) {
+        info->err_cnt = 0;
+        info->in_error = FALSE;
     }
 
     if (task->tx_error_code == HTTP_TASK_ERR_LIBRARY_TOO_LARGE)
-        info->in_perm_error = TRUE;
+        info->in_error = TRUE;
 }
 
 static inline void
@@ -2127,7 +2142,7 @@ clone_repo (SeafSyncManager *manager,
             HttpServerState *state,
             SyncInfo *sync_info);
 
-static void
+static int
 sync_repo (SeafSyncManager *manager,
            HttpServerState *state,
            SyncInfo *sync_info,
@@ -2179,8 +2194,6 @@ auto_sync_account_repos (SeafSyncManager *manager, const char *server, const cha
     for (ptr = repo_info_list; ptr; ptr = ptr->next) {
         repo_info = (RepoInfo *)ptr->data;
 
-        if (repo_info->perm_unsyncable)
-            continue;
         if (!account->all_repos_loaded) {
             repo = seaf_repo_manager_get_repo (seaf->repo_mgr, repo_info->id);
             if (!repo)
@@ -2235,14 +2248,14 @@ auto_sync_account_repos (SeafSyncManager *manager, const char *server, const cha
     for (ptr = sync_info_list; ptr != NULL; ptr = ptr->next) {
         sync_info = (SyncInfo *)ptr->data;
 
+        if (sync_info->in_error) {
+            continue;
+        }
+
         repo = seaf_repo_manager_get_repo (seaf->repo_mgr, sync_info->repo_id);
         if (!repo) {
             if (exceed_max_tasks (manager))
                 continue;
-
-            if (sync_info->in_perm_error) {
-                continue;
-            }
 
             /* Don't re-download a repo that's still marked as delete-pending.
              * It should be downloaded after the local repo is removed.
@@ -2276,7 +2289,7 @@ auto_sync_account_repos (SeafSyncManager *manager, const char *server, const cha
             continue;
         }
 
-        if (sync_info->in_perm_error) {
+        if (repo->encrypted && !repo->is_passwd_set) {
             seaf_repo_unref (repo);
             continue;
         }
@@ -2289,7 +2302,7 @@ auto_sync_account_repos (SeafSyncManager *manager, const char *server, const cha
 
         seaf_repo_unref (repo);
     }
-
+    
     seaf_account_free (account);
     g_list_free (repo_info_list);
     g_list_free (sync_info_list);
@@ -2706,7 +2719,8 @@ get_del_confirmation_result (const char *confirmation_id)
     return copy;
 }
 
-static void
+
+static int
 sync_repo (SeafSyncManager *manager,
            HttpServerState *state,
            SyncInfo *sync_info,
@@ -2714,17 +2728,20 @@ sync_repo (SeafSyncManager *manager,
 {
     SeafBranch *master = NULL, *local = NULL;
     SyncTask *task;
+    int ret = 0;
 
     master = seaf_branch_manager_get_branch (seaf->branch_mgr, repo->id, "master");
     if (!master) {
         seaf_warning ("No master branch found for repo %s(%.8s).\n",
                       repo->name, repo->id);
+        ret = -1;
         goto out;
     }
     local = seaf_branch_manager_get_branch (seaf->branch_mgr, repo->id, "local");
     if (!local) {
         seaf_warning ("No local branch found for repo %s(%.8s).\n",
                       repo->name, repo->id);
+        ret = -1;
         goto out;
     }
 
@@ -2780,6 +2797,7 @@ sync_repo (SeafSyncManager *manager,
                 seaf_warning ("Failed to add upload task for repo %s to %s.\n",
                               sync_info->repo_id, state->effective_host);
                 seaf_sync_manager_set_task_error (task, SYNC_ERROR_START_UPLOAD);
+                ret = -1;
                 goto out;
             }
 
@@ -2814,7 +2832,7 @@ sync_repo (SeafSyncManager *manager,
 out:
     seaf_branch_unref (local);
     seaf_branch_unref (master);
-    return;
+    return ret;
 }
 
 static void
@@ -3482,7 +3500,7 @@ out:
 
     return;
 }
-
+    
 static void
 on_repo_http_uploaded (SeafileSession *seaf,
                        HttpTxTask *tx_task,
