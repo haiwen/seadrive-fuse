@@ -3283,9 +3283,11 @@ handle_repo_fetched_clone (SeafileSession *seaf,
         if (tx_task->error == HTTP_TASK_ERR_FORBIDDEN) {
             seaf_sync_manager_set_task_error (task, SYNC_ERROR_ACCESS_DENIED);
         } else if (tx_task->error == HTTP_TASK_ERR_FILE_LOCKED) {
+            task->unsyncable_path = tx_task->unsyncable_path;
             seaf_sync_manager_set_task_error (task, SYNC_ERROR_FILES_LOCKED_BY_USER);
         }
         else if (tx_task->error == HTTP_TASK_ERR_FOLDER_PERM_DENIED) {
+            task->unsyncable_path = tx_task->unsyncable_path;
             seaf_sync_manager_set_task_error (task, SYNC_ERROR_FOLDER_PERM_DENIED);
         } else if (tx_task->error == HTTP_TASK_ERR_NO_PERMISSION_TO_SYNC) {
             task->unsyncable_path = tx_task->unsyncable_path;
@@ -3506,8 +3508,10 @@ on_repo_http_uploaded (SeafileSession *seaf,
         if (tx_task->error == HTTP_TASK_ERR_FORBIDDEN) {
             seaf_sync_manager_set_task_error (task, SYNC_ERROR_ACCESS_DENIED);
         } else if (tx_task->error == HTTP_TASK_ERR_FILE_LOCKED) {
+            task->unsyncable_path = tx_task->unsyncable_path;
             seaf_sync_manager_set_task_error (task, SYNC_ERROR_FILES_LOCKED_BY_USER);
         } else if (tx_task->error == HTTP_TASK_ERR_FOLDER_PERM_DENIED) {
+            task->unsyncable_path = tx_task->unsyncable_path;
             seaf_sync_manager_set_task_error (task, SYNC_ERROR_FOLDER_PERM_DENIED);
         } else if (tx_task->error == HTTP_TASK_ERR_TOO_MANY_FILES) {
             seaf_sync_manager_set_task_error (task, SYNC_ERROR_TOO_MANY_FILES);
