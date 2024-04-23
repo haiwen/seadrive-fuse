@@ -36,6 +36,9 @@ static void print_version ()
     fprintf (stdout, "SeaDrive "SEAFILE_CLIENT_VERSION"\n");
 }
 
+#include <fcntl.h>
+#include <sys/file.h>
+
 #define FUSE_USE_VERSION  26
 #include <fuse.h>
 #include <fuse_opt.h>
@@ -356,6 +359,26 @@ load_config_from_file (const char *config_file)
     g_key_file_free (key_file);
 }
 
+static int
+write_pidfile (char *pidfile)
+{
+    int fd = open (pidfile, O_WRONLY | O_CREAT, 0644);
+    if (fd < 0) {
+        seaf_warning ("Failed to open pidfile %s: %s\n",
+                      pidfile, strerror(errno));
+        return -1;
+    }
+
+    if (flock (fd, LOCK_EX | LOCK_NB) < 0) {
+        seaf_warning ("Failed to lock pidfile %s: %s\n",
+                      pidfile, strerror(errno));
+        close (fd);
+        return -1;
+    }
+
+    return 0;
+}
+
 int
 main (int argc, char **argv)
 {
@@ -367,6 +390,7 @@ main (int argc, char **argv)
     const char *mount_point = NULL;
     char *config_file = NULL;
     char *language = NULL;
+    char *pidfile = NULL;
 
     struct fuse_args args = FUSE_ARGS_INIT(argc, argv);
 
@@ -431,6 +455,12 @@ main (int argc, char **argv)
         logfile = g_build_filename (log_dir, "seadrive.log", NULL);
     if (seafile_log_init (logfile) < 0) {
         seaf_warning ("Failed to init log.\n");
+        exit (1);
+    }
+
+    pidfile = g_build_filename (full_seafdir, "seadrive.pid", NULL);
+    if (write_pidfile (pidfile) < 0) {
+        seaf_warning ("Seadrive is already running.\n");
         exit (1);
     }
 
