@@ -853,10 +853,12 @@ is_path_invisible (const char *repo_id, const char *path)
     if (!permission)
         return FALSE;
 
-    if (strcmp (permission, "invisible") == 0)
-        return TRUE;
-    else
+    if (strcmp (permission, "rw") == 0 ||
+        strcmp (permission, "r") == 0) {
         return FALSE;
+    } else {
+        return TRUE;
+    }
 }
 
 gboolean
@@ -886,7 +888,8 @@ include_invisible_perm (GList *perms)
 
     for (ptr = perms; ptr; ptr = ptr->next) {
         perm = ptr->data;
-        if (strcmp (perm->permission, "invisible") == 0)
+        if (strcmp (perm->permission, "rw") != 0 && 
+            strcmp (perm->permission, "r") != 0)
             return TRUE;
     }
 
