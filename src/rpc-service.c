@@ -442,6 +442,8 @@ seafile_get_enc_repo_list (GError **error)
         //used to determine whether the repo is in the current account when switch account.
         if (!display_name)
             continue;
+        json_object_set_new (obj, "server", json_string(repo->server));
+        json_object_set_new (obj, "username", json_string(repo->user));
         json_object_set_new (obj, "repo_id", json_string(repo->id));
         json_object_set_new (obj, "repo_display_name", json_string(display_name));
         if (repo->is_passwd_set)

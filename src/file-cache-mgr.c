@@ -41,6 +41,9 @@ typedef struct CachedFile {
 
     gboolean force_canceled;
     gint64 last_cancel_time;
+
+    char *server;
+    char *user;
 } CachedFile;
 
 typedef struct FileCacheMgrPriv {
@@ -70,6 +73,26 @@ typedef struct FileCacheMgrPriv {
     pthread_mutex_t downloaded_files_lock;
 } FileCacheMgrPriv;
 
+typedef struct FileDownloadedInfo {
+    char *file_path;
+    char *server;
+    char *user;
+} FileDownloadedInfo;
+
+static void
+file_downloaded_info_free (FileDownloadedInfo *info)
+{
+  if (!info)
+      return;
+  g_free (info->file_path);
+  g_free (info->server);
+  g_free (info->user);
+  g_free (info);
+
+  return;
+}
+
+
 static char *
 cached_file_ondisk_path (CachedFile *file)
 {
@@ -92,6 +115,8 @@ free_cached_file (CachedFile *file)
 
     g_free (file->file_key);
     g_free (file->repo_uname);
+    g_free (file->server);
+    g_free (file->user);
     g_free (file);
 }
 
@@ -652,11 +677,14 @@ fetch_file_worker (gpointer data, gpointer user_data)
 
     pthread_mutex_lock (&priv->downloaded_files_lock);
 
-    g_queue_push_head (priv->downloaded_files,
-                       g_build_filename (file_handle->cached_file->repo_uname,
-                                         file_path, NULL));
+    FileDownloadedInfo *info = g_new0 (FileDownloadedInfo, 1);
+    info->file_path = g_build_filename (file_handle->cached_file->repo_uname,
+                                        file_path, NULL);
+    info->server = g_strdup (repo->server);
+    info->user = g_strdup (repo->user);
+    g_queue_push_head (priv->downloaded_files, info);
     if (priv->downloaded_files->length > MAX_GET_FINISHED_FILES) {
-        g_free (g_queue_pop_tail (priv->downloaded_files));
+        file_downloaded_info_free (g_queue_pop_tail (priv->downloaded_files));
     }
 
     pthread_mutex_unlock (&priv->downloaded_files_lock);
@@ -896,6 +924,8 @@ get_cached_file (FileCacheMgrPriv *priv,
                  const char *repo_id,
                  const char *repo_uname,
                  const char *file_path,
+                 const char *server,
+                 const char *user,
                  RepoTreeStat *st)
 {
     CachedFile *cached_file = NULL;
@@ -910,6 +940,8 @@ get_cached_file (FileCacheMgrPriv *priv,
         cached_file = g_new0 (CachedFile, 1);
         cached_file->file_key = file_key;
         cached_file->repo_uname = g_strdup (repo_uname);
+        cached_file->server = g_strdup (server);;
+        cached_file->user = g_strdup (user);
 
         g_hash_table_replace (priv->cached_files, cached_file->file_key, cached_file);
         /* Keep 1 open number for internal reference. */
@@ -977,6 +1009,8 @@ file_cache_mgr_cache_file (FileCacheMgr *mgr, const char *repo_id, const char *p
         cached_file = g_new0 (CachedFile, 1);
         cached_file->file_key = file_key;
         cached_file->repo_uname = g_strdup (repo->repo_uname);
+        cached_file->server = g_strdup (repo->server);
+        cached_file->user = g_strdup (repo->user);
 
         g_hash_table_replace (priv->cached_files, cached_file->file_key, cached_file);
         /* Keep 1 open number for internal reference. */
@@ -1009,6 +1043,8 @@ open_cached_file_handle (FileCacheMgrPriv *priv,
                          const char *repo_id,
                          const char *repo_uname,
                          const char *file_path,
+                         const char *server,
+                         const char *user,
                          RepoTreeStat *st,
                          int flags)
 {
@@ -1017,7 +1053,7 @@ open_cached_file_handle (FileCacheMgrPriv *priv,
     char *ondisk_path = NULL;
     int fd;
 
-    file = get_cached_file (priv, repo_id, repo_uname, file_path, st);
+    file = get_cached_file (priv, repo_id, repo_uname, file_path, server, user, st);
     if (!file) {
         return NULL;
     }
@@ -1078,7 +1114,7 @@ file_cache_mgr_open (FileCacheMgr *mgr, const char *repo_id,
     }
 
     handle = open_cached_file_handle (priv, repo_id, repo->repo_uname,
-                                      file_path, &tree_stat, flags);
+                                      file_path, repo->server, repo->user, &tree_stat, flags);
     if (!handle) {
         seaf_warning ("Failed to open handle to cached file %s in repo %s.\n",
                       file_path, repo_id);
@@ -2729,6 +2765,8 @@ collect_downloading_files (gpointer key, gpointer value,
     cached_file = g_hash_table_lookup (priv->cached_files, file_key);
 
     char *abs_path = g_build_filename (cached_file->repo_uname, path, NULL);
+    json_object_set_string_member (info_obj, "server", cached_file->server);
+    json_object_set_string_member (info_obj, "username", cached_file->user);
     json_object_set_string_member (info_obj, "file_path", abs_path);
     json_object_set_int_member (info_obj, "downloaded", cached_file->downloaded);
     json_object_set_int_member (info_obj, "total_download", cached_file->total_download);
@@ -2743,10 +2781,11 @@ file_cache_mgr_get_download_progress (FileCacheMgr *mgr)
 {
     FileCacheMgrPriv *priv = mgr->priv;
     int i = 0;
-    char *file_path;
     json_t *downloaded = json_array ();
     json_t *downloading = json_array ();
     json_t *progress = json_object ();
+    FileDownloadedInfo *info;
+    json_t *downloaded_obj;
 
     pthread_mutex_lock (&priv->task_lock);
 
@@ -2758,9 +2797,13 @@ file_cache_mgr_get_download_progress (FileCacheMgr *mgr)
     pthread_mutex_lock (&priv->downloaded_files_lock);
 
     while (i < MAX_GET_FINISHED_FILES) {
-        file_path = g_queue_peek_nth (priv->downloaded_files, i);
-        if (file_path) {
-            json_array_append_new (downloaded, json_string (file_path));
+        info = g_queue_peek_nth (priv->downloaded_files, i);
+        if (info) {
+            downloaded_obj = json_object ();
+            json_object_set_string_member (downloaded_obj, "server", info->server);
+            json_object_set_string_member (downloaded_obj, "username", info->user);
+            json_object_set_string_member (downloaded_obj, "file_path", info->file_path);
+            json_array_append_new (downloaded, downloaded_obj);
         } else {
             break;
         }
