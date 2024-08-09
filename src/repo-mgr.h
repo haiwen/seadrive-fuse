@@ -315,6 +315,7 @@ seaf_repo_manager_include_invisible_perm (SeafRepoManager *mgr,
 struct _SeafAccount {
     char *server;
     char *username;
+    char *nickname;
     char *token;
     char *name;
     char *fileserver_addr;
@@ -344,6 +345,7 @@ int
 seaf_repo_manager_add_account (SeafRepoManager *mgr,
                                const char *server,
                                const char *username,
+                               const char *nickname,
                                const char *token,
                                const char *name,
                                gboolean is_pro);

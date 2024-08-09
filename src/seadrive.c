@@ -187,6 +187,7 @@ load_account_from_file (const char *account_file)
 
     seaf_repo_manager_add_account (seaf->repo_mgr,
                                    server, username,
+                                   username,
                                    token,
                                    username,
                                    is_pro);

@@ -2669,6 +2669,7 @@ seaf_account_free (SeafAccount *account)
         return;
     g_free (account->server);
     g_free (account->username);
+    g_free (account->nickname);
     g_free (account->token);
     g_free (account->fileserver_addr);
     g_free (account->unique_id);
@@ -3044,6 +3045,7 @@ int
 seaf_repo_manager_add_account (SeafRepoManager *mgr,
                                const char *server,
                                const char *username,
+                               const char *nickname,
                                const char *token,
                                const char *name,
                                gboolean is_pro)
@@ -3074,6 +3076,7 @@ seaf_repo_manager_add_account (SeafRepoManager *mgr,
     new_account = g_new0 (SeafAccount, 1);
     new_account->server = g_strdup(server);
     new_account->username = g_strdup(username);
+    new_account->nickname = g_strdup(nickname);
     new_account->token = g_strdup(token);
     new_account->name = g_strdup(name);
     new_account->fileserver_addr = parse_fileserver_addr(server);
@@ -3114,6 +3117,7 @@ copy_account (SeafAccount *account)
     SeafAccount *ret = g_new0 (SeafAccount, 1);
     ret->server = g_strdup(account->server);
     ret->username = g_strdup(account->username);
+    ret->nickname = g_strdup(account->nickname);
     ret->token = g_strdup(account->token);
     ret->name = g_strdup (account->name);
     ret->fileserver_addr = g_strdup(account->fileserver_addr);

@@ -19,6 +19,7 @@
 
 static int
 seafile_add_account (const char *server, const char *username,
+                     const char *nickname,
                      const char *token,
                      const char *name,
                      int is_pro, GError **error)
@@ -33,6 +34,7 @@ seafile_add_account (const char *server, const char *username,
     return seaf_repo_manager_add_account (seaf->repo_mgr,
                                           server,
                                           username,
+                                          nickname,
                                           token,
                                           name,
                                           (is_pro > 0));
@@ -643,7 +645,7 @@ register_rpc_service ()
     searpc_server_register_function ("seadrive-rpcserver",
                                      seafile_add_account,
                                      "seafile_add_account",
-                                     searpc_signature_int__string_string_string_string_int());
+                                     searpc_signature_int__string_string_string_string_string_int());
 
     searpc_server_register_function ("seadrive-rpcserver",
                                      seafile_delete_account,
