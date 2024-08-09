@@ -200,6 +200,7 @@ out:
 
 #define GENERAL_GROUP "general"
 #define CLIENT_NAME "client_name"
+#define DELETE_THRESHOLD "delete_confirm_threshold"
 
 #define NETWORK_GROUP "network"
 #define DISABLE_VERIFY_CERTIFICATE "disable_verify_certificate"
@@ -266,6 +267,7 @@ load_config_from_file (const char *config_file)
     char *cache_size_limit_str = NULL;
     gint64 cache_size_limit;
     int clean_cache_interval;
+    int delete_confirm_threshold = 1000000;
 
     full_config_file = ccnet_expand_path (config_file);
 
@@ -282,6 +284,14 @@ load_config_from_file (const char *config_file)
         g_free (seaf->client_name);
         seaf->client_name = g_strdup(client_name);
     }
+
+    delete_confirm_threshold = g_key_file_get_integer (key_file, GENERAL_GROUP, DELETE_THRESHOLD,
+                                                      &error);
+    if (!error) {
+        if (delete_confirm_threshold > 0)
+            seaf->delete_confirm_threshold = delete_confirm_threshold;
+    }
+    g_clear_error (&error);
 
     disable_verify_certificate = g_key_file_get_boolean (key_file, NETWORK_GROUP,
                                                          DISABLE_VERIFY_CERTIFICATE,
