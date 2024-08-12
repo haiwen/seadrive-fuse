@@ -346,13 +346,17 @@ static SyncErrorInfo sync_error_info_tbl[] = {
         SYNC_ERROR_LEVEL_REPO,
     }, // 31
     {
+        SYNC_ERROR_ID_CHECKOUT_FILE,
+        SYNC_ERROR_LEVEL_FILE,
+    }, // 32
+    {
         SYNC_ERROR_ID_GENERAL_ERROR,
         SYNC_ERROR_LEVEL_REPO,
-    }, // 32
+    }, // 33
     {
         SYNC_ERROR_ID_NO_ERROR,
         SYNC_ERROR_LEVEL_REPO,
-    }, // 33
+    }, // 34
 };
 
 int
