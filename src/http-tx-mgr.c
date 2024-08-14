@@ -100,11 +100,6 @@ struct _HttpTxPriv {
 };
 typedef struct _HttpTxPriv HttpTxPriv;
 
-typedef struct FileUploadProgress {
-    guint64 uploaded;
-    guint64 total_upload;
-} FileUploadProgress;
-
 /* Http Tx Task */
 
 static HttpTxTask *
@@ -138,6 +133,8 @@ http_tx_task_free (HttpTxTask *task)
     g_free (task->unsyncable_path);
     g_free (task->host);
     g_free (task->token);
+    g_free (task->server);
+    g_free (task->user);
     g_free (task);
 }
 
@@ -438,6 +435,10 @@ set_proxy (CURL *curl, gboolean is_https)
         curl_easy_setopt(curl, CURLOPT_PROXYTYPE, CURLPROXY_SOCKS5_HOSTNAME);
         curl_easy_setopt(curl, CURLOPT_PROXY, seaf->http_proxy_addr);
         curl_easy_setopt(curl, CURLOPT_PROXYPORT, seaf->http_proxy_port);
+        if (seaf->http_proxy_username && g_strcmp0 (seaf->http_proxy_username, "") != 0)
+            curl_easy_setopt(curl, CURLOPT_PROXYUSERNAME, seaf->http_proxy_username);
+        if (seaf->http_proxy_password && g_strcmp0 (seaf->http_proxy_password, "") != 0)
+            curl_easy_setopt(curl, CURLOPT_PROXYPASSWORD, seaf->http_proxy_password);
     }
 }
 
@@ -2626,8 +2627,8 @@ check_permission (HttpTxTask *task, Connection *conn)
         } else {
             task->error = HTTP_TASK_ERR_FORBIDDEN;
         }
-        seaf_repo_manager_set_if_current_repo_unsyncable (seaf->repo_mgr, task->repo_id,
-                                                          perm_unsyncable);
+        seaf_repo_manager_set_if_repo_unsyncable (seaf->repo_mgr, task->repo_id,
+                                                  perm_unsyncable);
         ret = -1;
     }
 
@@ -2647,6 +2648,8 @@ int
 http_tx_manager_add_upload (HttpTxManager *manager,
                             const char *repo_id,
                             int repo_version,
+                            const char *server,
+                            const char *user,
                             const char *repo_uname,
                             const char *host,
                             const char *token,
@@ -2673,6 +2676,9 @@ http_tx_manager_add_upload (HttpTxManager *manager,
     task->state = HTTP_TASK_STATE_NORMAL;
 
     task->use_fileserver_port = use_fileserver_port;
+
+    task->server = g_strdup (server);
+    task->user = g_strdup (user);
 
     g_hash_table_insert (manager->priv->upload_tasks,
                          g_strdup(repo_id),
@@ -3534,12 +3540,50 @@ out:
 
 #endif  /* 0 */
 
+typedef struct FileUploadProgress {
+    char *server;
+    char *user;
+    guint64 uploaded;
+    guint64 total_upload;
+} FileUploadProgress;
+
+typedef struct FileUploadedInfo {
+    char *server;
+    char *user;
+    char *file_path;
+} FileUploadedInfo;
+
 typedef struct {
     char block_id[41];
     BlockHandle *block;
     HttpTxTask *task;
     FileUploadProgress *progress;
 } SendBlockData;
+
+static FileUploadedInfo *
+file_uploaded_info_new (const char *server, const char *user,
+                       const char *file_path)
+{
+    FileUploadedInfo *info = g_new0 (FileUploadedInfo, 1);
+    info->server = g_strdup (server);
+    info->user = g_strdup (user);
+    info->file_path = g_strdup (file_path);
+
+    return info;
+}
+
+static void
+file_uploaded_info_free (FileUploadedInfo *info)
+{
+    if (!info)
+        return;
+    g_free (info->server);
+    g_free (info->user);
+    g_free (info->file_path);
+    g_free (info);
+
+    return;
+}
 
 static size_t
 send_block_callback (void *ptr, size_t size, size_t nmemb, void *userp)
@@ -3754,10 +3798,11 @@ upload_file (HttpTxTask *http_task, Connection *conn,
     abs_path = g_build_filename (http_task->repo_uname, file_path, NULL);
 
     if (!block_list && file_size == 0) {
+        FileUploadedInfo *file_info = file_uploaded_info_new (http_task->server, http_task->user, abs_path);
         pthread_mutex_lock (&priv->progress_lock);
-        g_queue_push_head (priv->uploaded_files, g_strdup (abs_path));
+        g_queue_push_head (priv->uploaded_files, file_info);
         if (priv->uploaded_files->length > MAX_GET_FINISHED_FILES)
-            g_free (g_queue_pop_tail (priv->uploaded_files));
+            file_uploaded_info_free (g_queue_pop_tail (priv->uploaded_files));
         pthread_mutex_unlock (&priv->progress_lock);
 
         g_free (abs_path);
@@ -3767,6 +3812,8 @@ upload_file (HttpTxTask *http_task, Connection *conn,
         return 0;
     }
 
+    progress.server = http_task->server;
+    progress.user = http_task->user;
     progress.uploaded = 0;
     progress.total_upload = file_size;
     block_size_pair = g_hash_table_new (g_str_hash, g_str_equal);
@@ -3815,9 +3862,10 @@ upload_file (HttpTxTask *http_task, Connection *conn,
     pthread_mutex_lock (&priv->progress_lock);
     g_hash_table_remove (priv->uploading_files, abs_path);
     if (ret == 0) {
-        g_queue_push_head (priv->uploaded_files, g_strdup (abs_path));
+        FileUploadedInfo *file_info = file_uploaded_info_new (http_task->server, http_task->user, abs_path);
+        g_queue_push_head (priv->uploaded_files, file_info);
         if (priv->uploaded_files->length > MAX_GET_FINISHED_FILES)
-            g_free (g_queue_pop_tail (priv->uploaded_files));
+            file_uploaded_info_free (g_queue_pop_tail (priv->uploaded_files));
     }
     pthread_mutex_unlock (&priv->progress_lock);
 
@@ -4315,6 +4363,8 @@ int
 http_tx_manager_add_download (HttpTxManager *manager,
                               const char *repo_id,
                               int repo_version,
+                              const char *server,
+                              const char *user,
                               const char *host,
                               const char *token,
                               const char *server_head_id,
@@ -4349,6 +4399,8 @@ http_tx_manager_add_download (HttpTxManager *manager,
     task->state = HTTP_TASK_STATE_NORMAL;
 
     task->use_fileserver_port = use_fileserver_port;
+    task->server = g_strdup (server);
+    task->user = g_strdup (user);
 
     g_hash_table_insert (manager->priv->download_tasks,
                          g_strdup(repo_id),
@@ -5140,6 +5192,9 @@ update_local_repo (HttpTxTask *task)
             ret = -1;
             goto out;
         }
+
+        repo->server = g_strdup (task->server);
+        repo->user = g_strdup (task->user);
 
         seaf_repo_from_commit (repo, new_head);
 
@@ -6179,6 +6234,8 @@ collect_uploading_files (gpointer key, gpointer value,
     json_t *uploading = user_data;
     json_t *upload_info = json_object ();
 
+    json_object_set_string_member (upload_info, "server", progress->server);
+    json_object_set_string_member (upload_info, "username", progress->user);
     json_object_set_string_member (upload_info, "file_path", abs_path);
     json_object_set_int_member (upload_info, "uploaded", progress->uploaded);
     json_object_set_int_member (upload_info, "total_upload", progress->total_upload);
@@ -6191,10 +6248,11 @@ http_tx_manager_get_upload_progress (HttpTxManager *mgr)
 {
     HttpTxPriv *priv = mgr->priv;
     int i = 0;
-    char *file_path;
+    FileUploadedInfo *uploaded_info;
     json_t *uploaded = json_array ();
     json_t *uploading = json_array ();
     json_t *progress = json_object ();
+    json_t *uploaded_obj;
 
     pthread_mutex_lock (&priv->progress_lock);
 
@@ -6202,9 +6260,13 @@ http_tx_manager_get_upload_progress (HttpTxManager *mgr)
                           uploading);
 
     while (i < MAX_GET_FINISHED_FILES) {
-        file_path = g_queue_peek_nth (priv->uploaded_files, i);
-        if (file_path) {
-            json_array_append_new (uploaded, json_string (file_path));
+        uploaded_info = g_queue_peek_nth (priv->uploaded_files, i);
+        if (uploaded_info) {
+            uploaded_obj = json_object ();
+            json_object_set_string_member (uploaded_obj, "server", uploaded_info->server);
+            json_object_set_string_member (uploaded_obj, "username", uploaded_info->user);
+            json_object_set_string_member (uploaded_obj, "file_path", uploaded_info->file_path);
+            json_array_append_new (uploaded, uploaded_obj);
         } else {
             break;
         }
