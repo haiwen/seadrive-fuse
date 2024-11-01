@@ -989,6 +989,9 @@ seaf_repo_free (SeafRepo *repo)
         g_free (repo->worktree);
     g_free (repo->server);
     g_free (repo->user);
+    g_free (repo->fileserver_addr);
+    g_free (repo->pwd_hash_algo);
+    g_free (repo->pwd_hash_params);
     g_free (repo);
 }
 
@@ -1063,21 +1066,26 @@ seaf_repo_from_commit (SeafRepo *repo, SeafCommit *commit)
     memcpy (repo->root_id, commit->root_id, 40);
     if (repo->encrypted) {
         repo->enc_version = commit->enc_version;
-        if (repo->enc_version == 1)
+        if (repo->enc_version == 1 && !commit->pwd_hash_algo)
             memcpy (repo->magic, commit->magic, 32);
         else if (repo->enc_version == 2) {
-            memcpy (repo->magic, commit->magic, 64);
             memcpy (repo->random_key, commit->random_key, 96);
         }
         else if (repo->enc_version == 3) {
-            memcpy (repo->magic, commit->magic, 64);
             memcpy (repo->salt, commit->salt, 64);
             memcpy (repo->random_key, commit->random_key, 96);
         }
         else if (repo->enc_version == 4) {
-            memcpy (repo->magic, commit->magic, 64);
             memcpy (repo->salt, commit->salt, 64);
             memcpy (repo->random_key, commit->random_key, 96);
+        }
+        if (repo->enc_version >= 2 && !commit->pwd_hash_algo) {
+            memcpy (repo->magic, commit->magic, 64);
+        }
+        if (commit->pwd_hash_algo) {
+            memcpy (repo->pwd_hash, commit->pwd_hash, 64);
+            repo->pwd_hash_algo = g_strdup (commit->pwd_hash_algo);
+            repo->pwd_hash_params = g_strdup (commit->pwd_hash_params);
         }
     }
     repo->version = commit->version;
@@ -1091,21 +1099,26 @@ seaf_repo_to_commit (SeafRepo *repo, SeafCommit *commit)
     commit->encrypted = repo->encrypted;
     if (commit->encrypted) {
         commit->enc_version = repo->enc_version;
-        if (commit->enc_version == 1)
+        if (commit->enc_version == 1 && !repo->pwd_hash_algo)
             commit->magic = g_strdup (repo->magic);
         else if (commit->enc_version == 2) {
-            commit->magic = g_strdup (repo->magic);
             commit->random_key = g_strdup (repo->random_key);
         }
         else if (commit->enc_version == 3) {
-            commit->magic = g_strdup (repo->magic);
             commit->salt = g_strdup (repo->salt);
             commit->random_key = g_strdup (repo->random_key);
         }
         else if (commit->enc_version == 4) {
-            commit->magic = g_strdup (repo->magic);
             commit->salt = g_strdup (repo->salt);
             commit->random_key = g_strdup (repo->random_key);
+        }
+        if (commit->enc_version >= 2 && !repo->pwd_hash_algo) {
+            commit->magic = g_strdup (repo->magic);
+        }
+        if (repo->pwd_hash_algo) {
+            commit->pwd_hash = g_strdup (repo->pwd_hash);
+            commit->pwd_hash_algo = g_strdup (repo->pwd_hash_algo);
+            commit->pwd_hash_params = g_strdup (repo->pwd_hash_params);
         }
     }
     commit->version = repo->version;

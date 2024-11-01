@@ -36,6 +36,9 @@ struct _SeafCommit {
     char       *magic;
     char       *random_key;
     char       *salt;
+    char       *pwd_hash;
+    char       *pwd_hash_algo;
+    char       *pwd_hash_params;
 
     int         version;
     gboolean    new_merge;

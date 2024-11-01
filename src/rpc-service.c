@@ -466,6 +466,7 @@ static int
 seafile_set_enc_repo_passwd (const char *repo_id, const char *passwd, GError **error)
 {
     SeafRepo *repo;
+    int ret = 0;
 
     if (!repo_id || !passwd) {
         g_set_error (error, SEAFILE_DOMAIN, SEAF_ERR_BAD_ARGS, "Argument should not be null");
@@ -478,16 +479,31 @@ seafile_set_enc_repo_passwd (const char *repo_id, const char *passwd, GError **e
         return -1;
     }
 
-    if (seafile_verify_repo_passwd (repo_id, passwd, repo->magic,
-                                    repo->enc_version, repo->salt) < 0) {
-        g_set_error (error, SEAFILE_DOMAIN, SEAF_ERR_BAD_ARGS, "Wrong password");
+    if (repo->pwd_hash_algo) {
+        if (seafile_pwd_hash_verify_repo_passwd (repo->enc_version, repo_id, passwd,
+                                                 repo->salt, repo->pwd_hash,
+                                                 repo->pwd_hash_algo, repo->pwd_hash_params) < 0) {
+            g_set_error (error, SEAFILE_DOMAIN, SEAF_ERR_BAD_ARGS, "Wrong password");
+            ret = -1;
+            goto out;
+        }
+
+    } else {
+        if (seafile_verify_repo_passwd (repo_id, passwd, repo->magic,
+                                        repo->enc_version, repo->salt) < 0) {
+            g_set_error (error, SEAFILE_DOMAIN, SEAF_ERR_BAD_ARGS, "Wrong password");
+            ret = -1;
+            goto out;
+        }
     }
 
-    int ret = seaf_repo_manager_set_repo_passwd (seaf->repo_mgr, repo, passwd);
+    ret = seaf_repo_manager_set_repo_passwd (seaf->repo_mgr, repo, passwd);
     if (ret < 0) {
         g_set_error (error, SEAFILE_DOMAIN, SEAF_ERR_BAD_ARGS, "Failed to insert data into db");
+        goto out;
     }
 
+out:
     seaf_repo_unref (repo);
     return ret;
 }

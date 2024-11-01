@@ -34,6 +34,7 @@ noinst_HEADERS = \
 	block.h \
 	block-backend.h \
 	seafile-crypt.h \
+	password-hash.h \
 	diff-simple.h \
 	seafile-config.h \
 	seafile-error.h \
@@ -79,6 +80,7 @@ seadrive_SOURCES = \
 	block-backend.c \
 	block-backend-fs.c \
 	seafile-crypt.c \
+	password-hash.c \
 	diff-simple.c \
 	seafile-config.c \
 	log.c \
@@ -105,7 +107,7 @@ seadrive_LDADD = @LIB_INTL@ @GLIB2_LIBS@ @GOBJECT_LIBS@ \
 	@SSL_LIBS@ @LIB_RT@ @LIB_UUID@ -lsqlite3 @LIBEVENT_LIBS@ \
 	@LIB_WS32@ @LIB_CRYPT32@ \
 	@JANSSON_LIBS@ @LIB_MAC@ @ZLIB_LIBS@ @CURL_LIBS@ @BPWRAPPER_LIBS@ \
-	@FUSE_LIBS@ @SEARPC_LIBS@ @WS_LIBS@
+	@FUSE_LIBS@ @SEARPC_LIBS@ @WS_LIBS@ @ARGON2_LIBS@
 endif
 
 seadrive_LDFLAGS = @CONSOLE@
