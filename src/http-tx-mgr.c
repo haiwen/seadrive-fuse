@@ -573,6 +573,9 @@ http_get (CURL *curl, const char *url, const char *token,
         token_header = g_strdup_printf ("Seafile-Repo-Token: %s", token);
         headers = curl_slist_append (headers, token_header);
         g_free (token_header);
+        token_header = g_strdup_printf ("Authorization: Token %s", token);
+        headers = curl_slist_append (headers, token_header);
+        g_free (token_header);
     }
 
     curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
@@ -599,6 +602,9 @@ http_get_range (CURL *curl, const char *url, const char *token,
 
     if (token) {
         token_header = g_strdup_printf ("Seafile-Repo-Token: %s", token);
+        headers = curl_slist_append (headers, token_header);
+        g_free (token_header);
+        token_header = g_strdup_printf ("Authorization: Token %s", token);
         headers = curl_slist_append (headers, token_header);
         g_free (token_header);
     }
@@ -696,6 +702,9 @@ http_put (CURL *curl, const char *url, const char *token,
 
     if (token) {
         token_header = g_strdup_printf ("Seafile-Repo-Token: %s", token);
+        headers = curl_slist_append (headers, token_header);
+        g_free (token_header);
+        token_header = g_strdup_printf ("Authorization: Token %s", token);
         headers = curl_slist_append (headers, token_header);
         g_free (token_header);
     }
@@ -892,6 +901,9 @@ http_post (CURL *curl, const char *url, const char *token,
 
     if (token) {
         token_header = g_strdup_printf ("Seafile-Repo-Token: %s", token);
+        headers = curl_slist_append (headers, token_header);
+        g_free (token_header);
+        token_header = g_strdup_printf ("Authorization: Token %s", token);
         headers = curl_slist_append (headers, token_header);
         g_free (token_header);
     }
