@@ -3796,12 +3796,6 @@ apply_journal_ops_to_changeset (SeafRepo *repo, ChangeSet *changeset,
             if (seaf_repo_manager_ignored_on_commit (filename))
                 break;
 
-            if (!seaf->hide_windows_incompatible_path_notification &&
-                seaf_sync_manager_ignored_on_checkout_on_windows (filename, NULL)) {
-                record_sync_error (seaf->sync_mgr, repo->id, repo->name, op->path,
-                                   SYNC_ERROR_ID_INVALID_PATH_ON_WINDOWS);
-            }
-
             st.st_size = op->size;
             st.st_mtime = op->mtime;
             st.st_mode = op->mode;
@@ -3868,12 +3862,6 @@ apply_journal_ops_to_changeset (SeafRepo *repo, ChangeSet *changeset,
         case OP_TYPE_MKDIR:
             if (seaf_repo_manager_ignored_on_commit (filename))
                 break;
-
-            if (!seaf->hide_windows_incompatible_path_notification &&
-                seaf_sync_manager_ignored_on_checkout_on_windows (filename, NULL)) {
-                record_sync_error (seaf->sync_mgr, repo->id, repo->name, op->path,
-                                   SYNC_ERROR_ID_INVALID_PATH_ON_WINDOWS);
-            }
 
             st.st_size = op->size;
             st.st_mtime = op->mtime;
