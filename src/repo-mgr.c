@@ -302,6 +302,7 @@ delete_folder_perm (SeafRepoManager *mgr, const char *repo_id, FolderPermType ty
         if (!folder_perms)
             return;
 
+        // if path is empty string, delete all folder perms in this repo.
         if (g_strcmp0 (perm->path, "") == 0) {
             g_list_free_full (folder_perms, (GDestroyNotify)folder_perm_free);
             g_hash_table_remove (mgr->priv->user_perms, repo_id);
@@ -314,8 +315,8 @@ delete_folder_perm (SeafRepoManager *mgr, const char *repo_id, FolderPermType ty
         if (existing) {
             FolderPerm *old_perm = existing->data;
             folder_perms = g_list_remove (folder_perms, old_perm);
-            folder_perm_free (old_perm);
             g_hash_table_insert (mgr->priv->user_perms, g_strdup(repo_id), folder_perms);
+            folder_perm_free (old_perm);
         }
     } else if (type == FOLDER_PERM_TYPE_GROUP) {
         folder_perms = g_hash_table_lookup (mgr->priv->group_perms, repo_id);
@@ -334,8 +335,8 @@ delete_folder_perm (SeafRepoManager *mgr, const char *repo_id, FolderPermType ty
         if (existing) {
             FolderPerm *old_perm = existing->data;
             folder_perms = g_list_remove (folder_perms, old_perm);
-            folder_perm_free (old_perm);
             g_hash_table_insert (mgr->priv->group_perms, g_strdup(repo_id), folder_perms);
+            folder_perm_free (old_perm);
         }
     }
 }
@@ -457,6 +458,7 @@ seaf_repo_manager_update_folder_perm (SeafRepoManager *mgr,
     GList *folder_perms;
 
     pthread_mutex_lock (&mgr->priv->perm_lock);
+
     if (type == FOLDER_PERM_TYPE_USER) {
         folder_perms = g_hash_table_lookup (mgr->priv->user_perms, repo_id);
         if (folder_perms) {
@@ -843,19 +845,32 @@ seaf_repo_manager_is_path_writable (SeafRepoManager *mgr,
     return ret;
 }
 
+// When checking whether a path is visible, we need to consider whether the parent folder is visible or not.
+// If the parent folder is not visible, then even if the subfolder has visible permissions, the subfolder is not visible.
 gboolean
-is_path_invisible (const char *repo_id, const char *path)
+is_path_invisible_recursive (const char *repo_id, const char *path)
 {
     char *permission = NULL;
 
+    if (!path || g_strcmp0 (path, ".") == 0) {
+        return FALSE;
+    }
+
     permission = get_folder_perm_by_path (repo_id, path);
 
-    if (!permission)
-        return FALSE;
+    if (!permission) {
+        char *folder = g_path_get_dirname (path);
+        gboolean is_invisible = is_path_invisible_recursive(repo_id, folder);
+        g_free (folder);
+        return is_invisible;
 
+    }
     if (strcmp (permission, "rw") == 0 ||
         strcmp (permission, "r") == 0) {
-        return FALSE;
+        char *folder = g_path_get_dirname (path);
+        gboolean is_invisible = is_path_invisible_recursive(repo_id, folder);
+        g_free (folder);
+        return is_invisible;
     } else {
         return TRUE;
     }
@@ -874,7 +889,7 @@ seaf_repo_manager_is_path_invisible (SeafRepoManager *mgr,
         return TRUE;
     }
 
-    ret = is_path_invisible (repo_id, path);
+    ret = is_path_invisible_recursive (repo_id, path);
 
     seaf_repo_unref (repo);
     return ret;

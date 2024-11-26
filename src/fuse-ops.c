@@ -584,13 +584,10 @@ readdir_repo (const char *repo_id, const char *path, void *buf, fuse_fill_dir_t 
     g_hash_table_iter_init (&iter, dirents);
     while (g_hash_table_iter_next (&iter, &key, &value)) {
         dname = (char *)key;
-#ifdef __APPLE__
-        dname_nfd = g_utf8_normalize (dname, -1, G_NORMALIZE_NFD);
-        filler (buf, dname_nfd, NULL, 0);
-        g_free (dname_nfd);
-#else
+        if (seaf_repo_manager_is_path_invisible (seaf->repo_mgr, repo_id, dname)) {
+            continue;
+        }
         filler (buf, dname, NULL, 0);
-#endif
     }
     g_hash_table_destroy (dirents);
 
