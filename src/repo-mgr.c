@@ -1406,6 +1406,7 @@ update_cached_file_in_tree (SeafRepo *repo, SeafStat *st, const char *path)
 typedef struct TraverseCachedFileAux {
     SeafRepo *repo;
     gboolean after_clone;
+    char *nickname;
 } TraverseCachedFileAux;
 
 static void
@@ -1470,7 +1471,7 @@ check_cached_file_status_cb (const char *repo_id,
                           (gint64)st->st_mtime, (gint64)st->st_size,
                           attrs.mtime, attrs.size,
                           tree_st.mtime, tree_st.size);
-            char *conflict_path = build_conflict_path (repo->user, file_path, st->st_mtime);
+            char *conflict_path = build_conflict_path (aux->nickname, file_path, st->st_mtime);
             if (conflict_path) {
                 seaf_message ("Generating conflict file %s in repo %s.\n",
                               conflict_path, repo_id);
@@ -1566,6 +1567,15 @@ seaf_repo_load_fs (SeafRepo *repo, gboolean after_clone)
     aux.repo = repo;
     aux.after_clone = after_clone;
 
+    SeafAccount *account = seaf_repo_manager_get_account (seaf->repo_mgr, repo->server, repo->user);
+    if (account && account->nickname) {
+        aux.nickname = g_strdup (account->nickname);
+    } else {
+        aux.nickname = g_strdup (repo->user);
+    }
+    seaf_account_free (account);
+
+
     file_cache_mgr_traverse_path (seaf->file_cache_mgr,
                                   repo->id,
                                   "",
@@ -1573,6 +1583,7 @@ seaf_repo_load_fs (SeafRepo *repo, gboolean after_clone)
                                   NULL,
                                   &aux);
 
+    g_free (aux.nickname);
     repo->fs_ready = TRUE;
 
     return 0;
