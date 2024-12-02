@@ -858,6 +858,19 @@ is_path_invisible_recursive (const char *repo_id, const char *path)
 
     permission = get_folder_perm_by_path (repo_id, path);
 
+    // Check if path is / after get folder perm.
+    if (g_strcmp0 (path, "/") == 0) {
+        if (!permission) {
+            return FALSE;
+        }
+
+        if (strcmp (permission, "rw") == 0 ||
+            strcmp (permission, "r") == 0) {
+            return FALSE;    
+        }
+        return TRUE;
+    }
+
     if (!permission) {
         char *folder = g_path_get_dirname (path);
         gboolean is_invisible = is_path_invisible_recursive(repo_id, folder);
