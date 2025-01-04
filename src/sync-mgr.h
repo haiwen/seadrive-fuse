@@ -73,27 +73,6 @@ struct _SeafSyncManager {
     SeafSyncManagerPriv *priv;
 };
 
-struct _SyncInfo {
-    SeafSyncManager *manager;
-
-    char       repo_id[37];     /* the repo */
-    struct _SyncTask  *current_task;
-
-    RepoInfo *repo_info;
-
-    int resync_count;
-
-    gint64     last_sync_time;
-
-    gboolean   in_sync;         /* set to FALSE when sync state is DONE or ERROR */
-
-    gint       err_cnt;
-    gboolean   in_error;        /* set to TRUE if err_cnt >= 3 */
-
-    gboolean del_confirmation_pending;
-};
-typedef struct _SyncInfo SyncInfo;
-
 SeafSyncManager* seaf_sync_manager_new (struct _SeafileSession *seaf);
 
 int seaf_sync_manager_init (SeafSyncManager *mgr);
@@ -291,10 +270,6 @@ seaf_repo_manager_ignored_on_commit (const char *filename);
 
 void
 seaf_sync_manager_check_locks_and_folder_perms (SeafSyncManager *manager, const char *server_url);
-
-SyncInfo *
-seaf_sync_manager_get_sync_info (SeafSyncManager *mgr,
-                                 const char *repo_id);
 
 void
 seaf_sync_manager_set_last_sync_time (SeafSyncManager *mgr,

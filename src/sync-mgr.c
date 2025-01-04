@@ -66,6 +66,27 @@ typedef struct _HttpServerState HttpServerState;
 
 struct _SyncTask;
 
+struct _SyncInfo {
+    SeafSyncManager *manager;
+
+    char       repo_id[37];     /* the repo */
+    struct _SyncTask  *current_task;
+
+    RepoInfo *repo_info;
+
+    int resync_count;
+
+    gint64     last_sync_time;
+
+    gboolean   in_sync;         /* set to FALSE when sync state is DONE or ERROR */
+
+    gint       err_cnt;
+    gboolean   in_error;        /* set to TRUE if err_cnt >= 3 */
+
+    gboolean del_confirmation_pending;
+};
+typedef struct _SyncInfo SyncInfo;
+
 struct _RepoToken {
     char token[41];
     int repo_version;

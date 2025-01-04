@@ -512,15 +512,13 @@ readdir_category (AccountInfo *account, RepoType type, void *buf, fuse_fill_dir_
     RepoInfo *info;
     SeafRepo *repo;
     char *dname;
-    SyncInfo *sync_info = NULL;
 #ifdef __APPLE__
     char *dname_nfd;
 #endif
 
     for (ptr = repos; ptr; ptr = ptr->next) {
         info = ptr->data;
-        sync_info = seaf_sync_manager_get_sync_info (seaf->sync_mgr, info->id);
-        if (sync_info && sync_info->in_error)
+        if (info->perm_unsyncable)
             continue;
 
         if (info->type != type)
