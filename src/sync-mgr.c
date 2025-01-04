@@ -3827,13 +3827,6 @@ apply_journal_ops_to_changeset (SeafRepo *repo, ChangeSet *changeset,
             if (seaf_repo_manager_ignored_on_commit (filename))
                 break;
 
-              if (seaf_filelock_manager_is_file_locked (seaf->filelock_mgr, repo->id, op->path)) {
-                  seaf_warning ("%s is locked on server, ignore.\n", op->path);
-                  record_sync_error (seaf->sync_mgr, repo->id, repo->name, op->path,
-                                     SYNC_ERROR_ID_FILE_LOCKED);
-                  break;
-              }
-
             handle_update_file_op (repo, changeset, username, op, FALSE,
                                    updated_files, &total_size, crypt);
             if (total_size >= MAX_COMMIT_SIZE) {
