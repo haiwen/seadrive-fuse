@@ -518,8 +518,6 @@ readdir_category (AccountInfo *account, RepoType type, void *buf, fuse_fill_dir_
 
     for (ptr = repos; ptr; ptr = ptr->next) {
         info = ptr->data;
-        if (info->perm_unsyncable)
-            continue;
 
         if (info->type != type)
             continue;
