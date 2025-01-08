@@ -43,9 +43,11 @@ enum {
 #define SYNC_ERROR_ID_INVALID_PATH_ON_WINDOWS   29
 #define SYNC_ERROR_ID_TOO_MANY_FILES            30
 #define SYNC_ERROR_ID_BLOCK_MISSING             31
-#define SYNC_ERROR_ID_GENERAL_ERROR             32
+#define SYNC_ERROR_ID_CHECKOUT_FILE             32
+#define SYNC_ERROR_ID_CASE_CONFLICT             33
+#define SYNC_ERROR_ID_GENERAL_ERROR             34
 
-#define SYNC_ERROR_ID_NO_ERROR                  33
+#define SYNC_ERROR_ID_NO_ERROR                  35
 
 int
 sync_error_level (int error);
@@ -88,10 +90,17 @@ typedef struct HttpServerInfo {
 } HttpServerInfo;
 
 HttpServerInfo *
-seaf_sync_manager_get_server_info (SeafSyncManager *mgr);
+seaf_sync_manager_get_server_info (SeafSyncManager *mgr,
+                                   const char *server,
+                                   const char *user);
 
 void
 seaf_sync_manager_free_server_info (HttpServerInfo *info);
+
+int
+seaf_sync_manager_update_account_repo_list (SeafSyncManager *mgr,
+                                            const char *server,
+                                            const char *username);
 
 int
 seaf_sync_manager_is_syncing (SeafSyncManager *mgr);
@@ -100,9 +109,6 @@ int
 seaf_handle_file_conflict (const char *repo_id,
                            const char *path,
                            gboolean *conflicted);
-
-int
-seaf_sync_manager_update_repo_list (SeafSyncManager *mgr);
 
 /* Path sync status */
 
@@ -138,10 +144,6 @@ seaf_sync_manager_get_path_sync_status (SeafSyncManager *mgr,
                                         const char *path);
 
 char *
-seaf_sync_manager_get_category_sync_status (SeafSyncManager *mgr,
-                                            const char *category);
-
-char *
 seaf_sync_manager_list_active_paths_json (SeafSyncManager *mgr);
 
 int
@@ -152,26 +154,36 @@ seaf_sync_manager_remove_active_path_info (SeafSyncManager *mgr, const char *rep
 
 int
 seaf_sync_manager_create_repo (SeafSyncManager *mgr,
+                               const char *server,
+                               const char *user,
                                const char *repo_name);
 
 int
 seaf_sync_manager_rename_repo (SeafSyncManager *mgr,
+                               const char *server,
+                               const char *user,
                                const char *repo_id,
                                const char *new_name);
 
 int
 seaf_sync_manager_delete_repo (SeafSyncManager *mgr,
+                               const char *server,
+                               const char *user,
                                const char *repo_id);
 
 /* Lock/unlock files on server. */
 
 void
 seaf_sync_manager_lock_file_on_server (SeafSyncManager *mgr,
+                                       const char *server,
+                                       const char *user,
                                        const char *repo_id,
                                        const char *path);
 
 void
 seaf_sync_manager_unlock_file_on_server (SeafSyncManager *mgr,
+                                         const char *server,
+                                         const char *user,
                                          const char *repo_id,
                                          const char *path);
 

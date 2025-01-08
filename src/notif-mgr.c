@@ -497,7 +497,7 @@ handle_file_lock (json_t *content)
         return -1;
     }
 
-    if (!seaf_repo_manager_current_account_is_pro (seaf->repo_mgr)) {
+    if (!seaf_repo_manager_account_is_pro (seaf->repo_mgr, repo->server, repo->user)) {
         ret = -1;
         goto out;
     }
@@ -535,7 +535,7 @@ handle_file_lock (json_t *content)
             ret = -1;
             goto out;
         }
-        SeafAccount *account = seaf_repo_manager_get_current_account (seaf->repo_mgr);
+        SeafAccount *account = seaf_repo_manager_get_account (seaf->repo_mgr, repo->server, repo->user);
         if (!account) {
             seaf_warning ("Failed to get current account.\n");
             ret = -1;
@@ -588,7 +588,7 @@ handle_folder_perm (json_t *content)
         return -1;
     }
 
-    if (!seaf_repo_manager_current_account_is_pro (seaf->repo_mgr)) {
+    if (!seaf_repo_manager_account_is_pro (seaf->repo_mgr, repo->server, repo->user)) {
         ret = -1;
         goto out;
     }
@@ -675,13 +675,6 @@ handle_jwt_expired (json_t *content)
     int ret = 0;
     SeafAccount *account = NULL;
 
-    account = seaf_repo_manager_get_current_account (seaf->repo_mgr);
-    if (!account) {
-        seaf_warning ("Failed to get current account.\n");
-        ret = -1;
-        goto out;
-    }
-
     member = json_object_get (content, "repo_id");
     if (!member) {
         seaf_warning ("Invalid jwt expired notification: no repo_id.\n");
@@ -691,6 +684,13 @@ handle_jwt_expired (json_t *content)
     repo_id = json_string_value (member);
     repo = seaf_repo_manager_get_repo (seaf->repo_mgr, repo_id);
     if (!repo) {
+        ret = -1;
+        goto out;
+    }
+
+    account = seaf_repo_manager_get_account (seaf->repo_mgr, repo->server, repo->user);
+    if (!account) {
+        seaf_warning ("Failed to get current account.\n");
         ret = -1;
         goto out;
     }
@@ -898,7 +898,7 @@ seaf_notif_manager_subscribe_repo (SeafNotifManager *mgr, SeafRepo *repo)
     json_t *array, *obj;
     SeafAccount *account = NULL;
     
-    account = seaf_repo_manager_get_current_account (seaf->repo_mgr);
+    account = seaf_repo_manager_get_account (seaf->repo_mgr, repo->server, repo->user);
     if (!account) {
         goto out;
     }
@@ -958,7 +958,7 @@ seaf_notif_manager_unsubscribe_repo (SeafNotifManager *mgr, SeafRepo *repo)
     json_t *array, *obj;
     SeafAccount *account = NULL;
 
-    account = seaf_repo_manager_get_current_account (seaf->repo_mgr);
+    account = seaf_repo_manager_get_account (seaf->repo_mgr, repo->server, repo->user);
     if (!account) {
         goto out;
     }
@@ -1013,7 +1013,7 @@ seaf_notif_manager_is_repo_subscribed (SeafNotifManager *mgr, SeafRepo *repo)
     gboolean subscribed = FALSE;
     SeafAccount *account = NULL;
 
-    account = seaf_repo_manager_get_current_account (seaf->repo_mgr);
+    account = seaf_repo_manager_get_account (seaf->repo_mgr, repo->server, repo->user);
     if (!account) {
         goto out;
     }

@@ -23,11 +23,12 @@ typedef struct CachedFileHandle {
     BlockBuffer blk_buffer;
     gint64 file_size;
     gboolean is_readonly;
-    gboolean is_in_root;
     gboolean fetch_canceled;
 
     gint64 start_download_time;
     gboolean notified_download_start;
+    char *server;
+    char *user;
 } CachedFileHandle;
 
 FileCacheMgr *
@@ -48,9 +49,6 @@ file_cache_mgr_close_file_handle (CachedFileHandle *file_handle);
 
 gboolean
 cached_file_handle_is_readonly (CachedFileHandle *file_handle);
-
-gboolean
-cached_file_handle_is_in_root (CachedFileHandle *handle);
 
 gssize
 file_cache_mgr_read (FileCacheMgr *mgr, CachedFileHandle *handle,
@@ -230,73 +228,6 @@ file_cache_mgr_utimen (FileCacheMgr *mgr, const char *repo_id, const char *path,
  */
 
 int
-file_cache_mgr_create_file_in_root (FileCacheMgr *mgr, const char *path, unsigned long mode);
-
-CachedFileHandle *
-file_cache_mgr_open_file_in_root (FileCacheMgr *mgr, const char *path, int flags);
-
-gssize
-file_cache_mgr_read_file_in_root (FileCacheMgr *mgr, CachedFileHandle *handle,
-                                  char *buf, size_t size, off_t offset);
-
-gssize
-file_cache_mgr_read_file_in_root_by_path (FileCacheMgr *mgr,
-                                          const char *path,
-                                          char *buf, size_t size, off_t offset);
-
-gssize
-file_cache_mgr_write_file_in_root (FileCacheMgr *mgr, CachedFileHandle *handle,
-                                   const char *buf, size_t size, off_t offset);
-
-gssize
-file_cache_mgr_write_file_in_root_by_path (FileCacheMgr *mgr,
-                                           const char *path,
-                                           const char *buf, size_t size, off_t offset);
-
-int
-file_cache_mgr_truncate_file_in_root (FileCacheMgr *mgr,
-                                      const char *path,
-                                      off_t length);
-
-int
-file_cache_mgr_getattr_in_root (FileCacheMgr *mgr, const char *path, SeafStat *st);
-
-int
-file_cache_mgr_mkdir_in_root (FileCacheMgr *mgr, const char *path, unsigned long mode);
-
-int
-file_cache_mgr_rmdir_in_root (FileCacheMgr *mgr, const char *path);
-
-int
-file_cache_mgr_unlink_file_in_root (FileCacheMgr *mgr, const char *path);
-
-int
-file_cache_mgr_stat_file_in_root (FileCacheMgr *mgr, const char *path, struct _RepoTreeStat *st);
-
-int
-file_cache_mgr_readdir_in_root (FileCacheMgr *mgr, const char *path, GHashTable *dirents);
-
-int
-file_cache_mgr_rename_in_root (FileCacheMgr *mgr, const char *oldpath, const char *newpath);
-
-int
-file_cache_mgr_chmod_in_root (FileCacheMgr *mgr, const char *path, mode_t mode);
-
-int
-file_cache_mgr_utimen_in_root (FileCacheMgr *mgr, const char *path, time_t mtime, time_t atime);
-
-int
-file_cache_mgr_symlink_in_root (FileCacheMgr *mgr, const char *from, const char *to);
-
-int
-file_cache_mgr_setxattr_in_root (FileCacheMgr *mgr,
-                                 const char *path, const char *name, const char *value, size_t size);
-
-int
-file_cache_mgr_getxattr_in_root (FileCacheMgr *mgr,
-                                 const char *path, const char *name, char *value, size_t size);
-
-int
 file_cache_mgr_uncache_path (const char *repo_id, const char *path);
 
 // {"downloading_files": [{"file_path":, "downloaded":, "total_download":}, ], "downloaded_files": [ten latest downloaded files]}
@@ -304,6 +235,9 @@ json_t *
 file_cache_mgr_get_download_progress (FileCacheMgr *mgr);
 
 int
-file_cache_mgr_cancel_download (FileCacheMgr *mgr, const char *full_file_path, GError **error);
+file_cache_mgr_cancel_download (FileCacheMgr *mgr,
+                                const char *server,
+                                const char *user,
+                                const char *full_file_path, GError **error);
 
 #endif

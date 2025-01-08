@@ -197,6 +197,10 @@ PKG_CHECK_MODULES(CURL, [libcurl >= $CURL_REQUIRED])
 AC_SUBST(CURL_CFLAGS)
 AC_SUBST(CURL_LIBS)
 
+PKG_CHECK_MODULES(ARGON2, [libargon2])
+AC_SUBST(ARGON2_CFLAGS)
+AC_SUBST(ARGON2_LIBS)
+
 AC_ARG_ENABLE(ws, AC_HELP_STRING([--enable-ws], [enable build websockets]),
   [compile_ws=$enableval],[compile_ws="yes"])
 AM_CONDITIONAL([COMPILE_WS], [test "${compile_ws}" = "yes"])
