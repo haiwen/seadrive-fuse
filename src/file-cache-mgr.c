@@ -41,9 +41,6 @@ typedef struct CachedFile {
 
     gboolean force_canceled;
     gint64 last_cancel_time;
-
-    char *server;
-    char *user;
 } CachedFile;
 
 typedef struct FileCacheMgrPriv {
@@ -115,8 +112,6 @@ free_cached_file (CachedFile *file)
 
     g_free (file->file_key);
     g_free (file->repo_uname);
-    g_free (file->server);
-    g_free (file->user);
     g_free (file);
 }
 
@@ -156,6 +151,8 @@ free_cached_file_handle (CachedFileHandle *file_handle)
     cached_file_unref (file_handle->cached_file);
     if (file_handle->crypt)
         g_free (file_handle->crypt);
+    g_free (file_handle->server);
+    g_free (file_handle->user);
     g_free (file_handle);
 }
 
@@ -816,7 +813,8 @@ out:
 static int remove_file_attrs (const char *path);
 
 static int
-start_cache_task (FileCacheMgrPriv *priv, CachedFile *file, RepoTreeStat *st)
+start_cache_task (FileCacheMgrPriv *priv, CachedFile *file, RepoTreeStat *st,
+                  const char *server, const char *user)
 {
     char *ondisk_path = NULL;
     int flags;
@@ -868,6 +866,8 @@ start_cache_task (FileCacheMgrPriv *priv, CachedFile *file, RepoTreeStat *st)
             handle->cached_file = file;
             handle->fd = fd;
             handle->cached_file->total_download = st->size;
+            handle->server = g_strdup(server);
+            handle->user = g_strdup(user);
 
             cached_file_ref (file);
 
@@ -933,8 +933,6 @@ get_cached_file (FileCacheMgrPriv *priv,
         cached_file = g_new0 (CachedFile, 1);
         cached_file->file_key = file_key;
         cached_file->repo_uname = g_strdup (repo_uname);
-        cached_file->server = g_strdup (server);;
-        cached_file->user = g_strdup (user);
 
         g_hash_table_replace (priv->cached_files, cached_file->file_key, cached_file);
         /* Keep 1 open number for internal reference. */
@@ -968,7 +966,7 @@ get_cached_file (FileCacheMgrPriv *priv,
         goto out;
     }
 
-    if (start_cache_task (priv, cached_file, st) < 0) {
+    if (start_cache_task (priv, cached_file, st, server, user) < 0) {
         seaf_warning ("Failed to start cache task for file %s in repo %s.\n",
                       file_path, repo_id);
         cached_file_unref (cached_file);
@@ -1002,8 +1000,6 @@ file_cache_mgr_cache_file (FileCacheMgr *mgr, const char *repo_id, const char *p
         cached_file = g_new0 (CachedFile, 1);
         cached_file->file_key = file_key;
         cached_file->repo_uname = g_strdup (repo->repo_uname);
-        cached_file->server = g_strdup (repo->server);
-        cached_file->user = g_strdup (repo->user);
 
         g_hash_table_replace (priv->cached_files, cached_file->file_key, cached_file);
         /* Keep 1 open number for internal reference. */
@@ -1020,7 +1016,7 @@ file_cache_mgr_cache_file (FileCacheMgr *mgr, const char *repo_id, const char *p
         goto out;
     }
 
-    if (start_cache_task (priv, cached_file, st) < 0) {
+    if (start_cache_task (priv, cached_file, st, repo->server, repo->user) < 0) {
         seaf_warning ("Failed to start cache task for file %s in repo %s.\n",
                       path, repo_id);
     }
@@ -1064,6 +1060,8 @@ open_cached_file_handle (FileCacheMgrPriv *priv,
     file_handle->cached_file = file;
     file_handle->fd = fd;
     file_handle->file_size = st->size;
+    file_handle->server = g_strdup(server);
+    file_handle->user = g_strdup(user);
 
     if (flags & O_RDONLY)
         file_handle->is_readonly = TRUE;
@@ -1268,8 +1266,15 @@ start_cache_task_before_read (FileCacheMgr *mgr,
                               RepoTreeStat *st)
 {
     FileCacheMgrPriv *priv = mgr->priv;
-    char *file_key;
-    CachedFile *file;
+    char *file_key = NULL;
+    CachedFile *file = NULL;
+    SeafRepo *repo = NULL;
+
+    repo = seaf_repo_manager_get_repo (seaf->repo_mgr, repo_id);
+    if (!repo) {
+        seaf_warning ("Failed to find repo %s.\n", repo_id);
+        return NULL;
+    }
 
     file_key = g_strconcat (repo_id, "/", path, NULL);
 
@@ -1278,16 +1283,17 @@ start_cache_task_before_read (FileCacheMgr *mgr,
     file = g_hash_table_lookup (priv->cached_files, file_key);
     if (!file) {
         pthread_mutex_unlock (&priv->cache_lock);
-        g_free (file_key);
-        return NULL;
+        goto out;
     }
 
     cached_file_ref (file);
 
     pthread_mutex_unlock (&priv->cache_lock);
 
-    start_cache_task (priv, file, st);
+    start_cache_task (priv, file, st, repo->server, repo->user);
 
+out:
+    seaf_repo_unref (repo);
     g_free (file_key);
 
     return file;
@@ -1358,7 +1364,7 @@ file_cache_mgr_read_by_path (FileCacheMgr *mgr,
         }
 
         if (wait_time >= READ_CACHE_TIMEOUT) {
-            seaf_debug ("Read cache file %s timeout.\n", ondisk_path);
+            seaf_warning ("Read cache file %s timeout.\n", ondisk_path);
             ret = -EIO;
             goto out;
         }
@@ -2615,56 +2621,6 @@ file_cache_mgr_is_fetching_file (FileCacheMgr *mgr)
 }
 
 int
-file_cache_mgr_readdir_in_root (FileCacheMgr *mgr, const char *server, const char *user, const char *path, GHashTable *dirents)
-{
-    char *ondisk_path;
-    SeafAccount *account;
-    GError *error = NULL;
-    GDir *dir;
-    const char *dname;
-    char *subpath;
-    SeafStat file_st;
-    RepoTreeStat *st;
-    int ret = 0;
-
-    account = seaf_repo_manager_get_account (seaf->repo_mgr, server, user);
-    if (!account) {
-        return (-ENOENT);
-    }
-
-    ondisk_path = g_build_filename (mgr->priv->base_path, "root",
-                                    account->unique_id, path, NULL);
-
-    dir = g_dir_open (ondisk_path, 0, &error);
-    if (error) {
-        ret = (-errno);
-        goto out;
-    }
-
-    while ((dname = g_dir_read_name (dir)) != NULL) {
-        subpath = g_build_filename (ondisk_path, dname, NULL);
-        if (seaf_stat (subpath, &file_st) < 0) {
-            g_free (subpath);
-            ret = (-errno);
-            goto out;
-        }
-        st = g_new0 (RepoTreeStat, 1);
-        st->mode = file_st.st_mode;
-        st->mtime = file_st.st_mtime;
-        st->size = file_st.st_size;
-        g_hash_table_insert (dirents, g_strdup(dname), st);
-        g_free (subpath);
-    }
-
-out:
-    g_free (ondisk_path);
-    if (dir)
-        g_dir_close (dir);
-    seaf_account_free (account);
-    return ret;
-}
-
-int
 file_cache_mgr_utimen (FileCacheMgr *mgr, const char *repo_id,
                        const char *path, time_t mtime, time_t atime)
 {
@@ -2688,6 +2644,7 @@ static void
 collect_downloading_files (gpointer key, gpointer value,
                            gpointer user_data)
 {
+    CachedFileHandle *handle = value;
     char *file_key = key;
     char **tokens = g_strsplit (file_key, "/", 2);
     char *path = tokens[1];
@@ -2699,8 +2656,8 @@ collect_downloading_files (gpointer key, gpointer value,
     cached_file = g_hash_table_lookup (priv->cached_files, file_key);
 
     char *abs_path = g_build_filename (cached_file->repo_uname, path, NULL);
-    json_object_set_string_member (info_obj, "server", cached_file->server);
-    json_object_set_string_member (info_obj, "username", cached_file->user);
+    json_object_set_string_member (info_obj, "server", handle->server);
+    json_object_set_string_member (info_obj, "username", handle->user);
     json_object_set_string_member (info_obj, "file_path", abs_path);
     json_object_set_int_member (info_obj, "downloaded", cached_file->downloaded);
     json_object_set_int_member (info_obj, "total_download", cached_file->total_download);

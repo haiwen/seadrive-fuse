@@ -326,29 +326,6 @@ get_category_dir_mtime (const char *server, const char *user, RepoType type)
     return mtime;
 }
 
-static gint64
-get_account_dir_mtime ()
-{
-    GList *accounts = NULL, *ptr;
-    SeafAccount *account;
-    gint64 mtime = 0;
-    gint64 rc = 0;
-    accounts = seaf_repo_manager_get_account_list (seaf->repo_mgr);
-    if (!accounts) {
-        return 0;
-    }
-
-    for (ptr = accounts; ptr; ptr = ptr->next) {
-        account = ptr->data;
-        rc = get_category_dir_mtime (account->server, account->username, REPO_TYPE_MINE);
-        if (rc > mtime)
-            mtime = rc;
-    }
-    g_list_free_full (accounts, (GDestroyNotify)seaf_account_free);
-
-    return mtime;
-}
-
 int
 seadrive_fuse_getattr(const char *path, struct stat *stbuf)
 {
@@ -381,24 +358,23 @@ seadrive_fuse_getattr(const char *path, struct stat *stbuf)
     }
 
     if (!comps.repo_type) {
-        /* Root directory */
+        /* Root or account directory */
         stbuf->st_mode = S_IFDIR | 0755;
         stbuf->st_nlink = 2;
         stbuf->st_size = 4096;
         stbuf->st_uid = uid;
         stbuf->st_gid = gid;
-        stbuf->st_mtime = get_account_dir_mtime ();
-    } else if (!comps.repo_info && !comps.repo_path) {
-        /* Account or category directory */
-        stbuf->st_mode = S_IFDIR | 0755;
-        stbuf->st_nlink = 2;
-        stbuf->st_size = 4096;
-        stbuf->st_uid = uid;
-        stbuf->st_gid = gid;
-        if (comps.multi_account)
+        if (comps.multi_account && comps.account_info)
+            // Multiple account directory
             stbuf->st_mtime = get_category_dir_mtime (comps.account_info->server, comps.account_info->username, comps.repo_type);
-        else
-            stbuf->st_mtime = get_account_dir_mtime ();
+    } else if (!comps.repo_info && !comps.repo_path) {
+        /* Category directory */
+        stbuf->st_mode = S_IFDIR | 0755;
+        stbuf->st_nlink = 2;
+        stbuf->st_size = 4096;
+        stbuf->st_uid = uid;
+        stbuf->st_gid = gid;
+        stbuf->st_mtime = get_category_dir_mtime (comps.account_info->server, comps.account_info->username, comps.repo_type);
     } else if (!comps.repo_path) {
         /* Repo directory */
         stbuf->st_mode = S_IFDIR | 0755;
@@ -491,22 +467,6 @@ readdir_root (AccountInfo *account, void *buf, fuse_fill_dir_t filler)
     }
 
     g_list_free_full (types, g_free);
-
-    GHashTable *root_entries;
-    GHashTableIter iter;
-    gpointer key, value;
-    char *dname;
-
-    root_entries = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, g_free);
-    if (file_cache_mgr_readdir_in_root (seaf->file_cache_mgr, account->server, account->username, "", root_entries) == 0) {
-        g_hash_table_iter_init (&iter, root_entries);
-        while (g_hash_table_iter_next (&iter, &key, &value)) {
-            dname = key;
-            filler (buf, dname, NULL, 0);
-        }
-    }
-
-    g_hash_table_destroy (root_entries);
 
     return 0;
 }

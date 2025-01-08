@@ -27,6 +27,8 @@ typedef struct CachedFileHandle {
 
     gint64 start_download_time;
     gboolean notified_download_start;
+    char *server;
+    char *user;
 } CachedFileHandle;
 
 FileCacheMgr *
@@ -224,9 +226,6 @@ file_cache_mgr_utimen (FileCacheMgr *mgr, const char *repo_id, const char *path,
  * These top-level files and folders are directly mapped into the "file-cache/root"
  * folder.
  */
-
-int
-file_cache_mgr_readdir_in_root (FileCacheMgr *mgr, const char *server, const char *user, const char *path, GHashTable *dirents);
 
 int
 file_cache_mgr_uncache_path (const char *repo_id, const char *path);
