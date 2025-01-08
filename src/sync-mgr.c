@@ -1335,8 +1335,8 @@ static void update_current_repos(HttpAPIGetResult *result, void *user_data)
         seaf_repo_manager_set_account_server_disconnected (seaf->repo_mgr, account->server, account->username, FALSE);
     }
 
-    /* If the get repo list request was sent around account switching,
-     * this callback may be called after the account has been switched.
+    /* If the get repo list request was sent around account deleting,
+     * this callback may be called after the account has been deleted.
      */
     curr_account = seaf_repo_manager_get_account (seaf->repo_mgr, account->server, account->username);
     if (!curr_account)

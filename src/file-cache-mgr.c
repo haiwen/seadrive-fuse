@@ -153,8 +153,7 @@ free_cached_file_handle (CachedFileHandle *file_handle)
 
     close (file_handle->fd);
     pthread_mutex_destroy (&file_handle->lock);
-    if (!file_handle->is_in_root)
-        cached_file_unref (file_handle->cached_file);
+    cached_file_unref (file_handle->cached_file);
     if (file_handle->crypt)
         g_free (file_handle->crypt);
     g_free (file_handle);
@@ -164,12 +163,6 @@ gboolean
 cached_file_handle_is_readonly (CachedFileHandle *file_handle)
 {
     return file_handle->is_readonly;
-}
-
-gboolean
-cached_file_handle_is_in_root (CachedFileHandle *handle)
-{
-    return handle->is_in_root;
 }
 
 static void
@@ -1128,11 +1121,6 @@ out:
 void
 file_cache_mgr_close_file_handle (CachedFileHandle *file_handle)
 {
-    if (file_handle->is_in_root) {
-        free_cached_file_handle (file_handle);
-        return;
-    }
-        
     char *file_key = g_strdup(file_handle->cached_file->file_key);
 
     free_cached_file_handle (file_handle);
@@ -1156,7 +1144,7 @@ get_file_range_from_server (const char *server, const char *user,
 
     SeafAccount *account = seaf_repo_manager_get_account (seaf->repo_mgr, server, user);
     if (!account) {
-        seaf_warning ("Failed to get account.\n");
+        seaf_warning ("Failed to get account %s %s.\n", server, user);
         return -1;
     }
 
@@ -2626,60 +2614,6 @@ file_cache_mgr_is_fetching_file (FileCacheMgr *mgr)
     return (g_hash_table_size(mgr->priv->cache_tasks) != 0);
 }
 
-gssize
-file_cache_mgr_read_file_in_root (FileCacheMgr *mgr, CachedFileHandle *handle,
-                                  char *buf, size_t size, off_t offset)
-{
-    gssize ret = 0;
-
-    pthread_mutex_lock (&handle->lock);
-
-    gint64 rc = seaf_util_lseek (handle->fd, offset, SEEK_SET);
-    if (rc < 0) {
-        seaf_warning ("Failed to lseek file: %s.\n", strerror(errno));
-        ret = (-errno);
-        goto out;
-    }
-
-    ret = readn (handle->fd, buf, size);
-    if (ret < 0) {
-        seaf_warning ("Failed to read file: %s.\n", strerror (errno));
-        ret = (-errno);
-        goto out;
-    }
-
-out:
-    pthread_mutex_unlock (&handle->lock);
-    return ret;
-}
-
-gssize
-file_cache_mgr_write_file_in_root (FileCacheMgr *mgr, CachedFileHandle *handle,
-                                   const char *buf, size_t size, off_t offset)
-{
-    gssize ret = 0;
-
-    pthread_mutex_lock (&handle->lock);
-
-    gint64 rc = seaf_util_lseek (handle->fd, offset, SEEK_SET);
-    if (rc < 0) {
-        seaf_warning ("Failed to lseek file: %s.\n", strerror(errno));
-        ret = (-errno);
-        goto out;
-    }
-
-    ret = writen (handle->fd, buf, size);
-    if (ret < 0) {
-        seaf_warning ("Failed to write file: %s.\n", strerror (errno));
-        ret = (-errno);
-        goto out;
-    }
-
-out:
-    pthread_mutex_unlock (&handle->lock);
-    return ret;
-}
-
 int
 file_cache_mgr_readdir_in_root (FileCacheMgr *mgr, const char *server, const char *user, const char *path, GHashTable *dirents)
 {
@@ -2946,7 +2880,7 @@ file_cache_mgr_cancel_download (FileCacheMgr *mgr,
     repo_name = tokens[1];
     file_path = tokens[2];
     display_name = g_build_path ("/", category, repo_name, NULL);
-    repo_id = seaf_repo_manager_get_repo_id_by_name (seaf->repo_mgr, server, user, repo_name);
+    repo_id = seaf_repo_manager_get_repo_id_by_display_name (seaf->repo_mgr, server, user, display_name);
     g_free (display_name);
     if (!repo_id) {
         g_set_error (error, SEAFILE_DOMAIN, SEAF_ERR_BAD_ARGS,

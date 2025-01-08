@@ -223,7 +223,7 @@ seafile_get_path_sync_status (const char *server,
         return NULL;
     }
 
-    repo_id = seaf_repo_manager_get_repo_id_by_name (seaf->repo_mgr, server, username, repo_uname);
+    repo_id = seaf_repo_manager_get_repo_id_by_display_name (seaf->repo_mgr, server, username, repo_uname);
     if (!repo_id) {
         g_set_error (error, SEAFILE_DOMAIN, SEAF_ERR_BAD_ARGS, "Invalid repo unique name");
         return NULL;
@@ -266,7 +266,7 @@ seafile_get_repo_id_by_uname (const char *server, const char *username, const ch
         return NULL;
     }
 
-    repo_id = seaf_repo_manager_get_repo_id_by_name (seaf->repo_mgr, server, username, repo_uname);
+    repo_id = seaf_repo_manager_get_repo_id_by_display_name (seaf->repo_mgr, server, username, repo_uname);
     if (!repo_id) {
         g_set_error (error, SEAFILE_DOMAIN, SEAF_ERR_BAD_ARGS, "Invalid repo unique name");
         return NULL;

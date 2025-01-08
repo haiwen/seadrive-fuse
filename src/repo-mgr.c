@@ -1172,6 +1172,10 @@ seaf_repo_set_worktree (SeafRepo *repo, const char *repo_uname)
     if (repo->repo_uname)
         g_free (repo->repo_uname);
     repo->repo_uname = g_strdup (repo_uname);
+
+    if (repo->worktree)
+        g_free (repo->worktree);
+    repo->worktree = g_build_path ("/", seaf->mount_point, repo_uname, NULL);
 }
 
 static void
@@ -3537,10 +3541,10 @@ seaf_repo_manager_get_account_repo_ids (SeafRepoManager *mgr,
 }
 
 RepoInfo *
-seaf_repo_manager_get_repo_info_by_name (SeafRepoManager *mgr,
-                                         const char *server,
-                                         const char *user,
-                                         const char *name)
+seaf_repo_manager_get_repo_info_by_display_name (SeafRepoManager *mgr,
+                                                 const char *server,
+                                                 const char *user,
+                                                 const char *name)
 {
     GHashTable *name_to_repo = NULL;
     RepoInfo *info, *ret = NULL;
@@ -3568,10 +3572,10 @@ seaf_repo_manager_get_repo_info_by_name (SeafRepoManager *mgr,
 }
 
 char *
-seaf_repo_manager_get_repo_id_by_name (SeafRepoManager *mgr,
-                                       const char *server,
-                                       const char *user,
-                                       const char *name)
+seaf_repo_manager_get_repo_id_by_display_name (SeafRepoManager *mgr,
+                                               const char *server,
+                                               const char *user,
+                                               const char *name)
 {
     GHashTable *name_to_repo = NULL;
     RepoInfo *info;

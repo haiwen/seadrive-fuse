@@ -82,6 +82,7 @@ struct _HttpTxTask {
 
     char repo_id[37];
     int repo_version;
+    // repo_uname is the same as display_name.
     char *repo_uname;
     char *token;
     int protocol_version;

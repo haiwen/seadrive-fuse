@@ -85,7 +85,7 @@ parse_fuse_path_single_account (SeafAccount *account, const char *path, FusePath
 
         repo_name = tokens[1];
         display_name = g_strconcat (tokens[0], "/", tokens[1], NULL);
-        info = seaf_repo_manager_get_repo_info_by_name (seaf->repo_mgr, account->server, account->username, display_name);
+        info = seaf_repo_manager_get_repo_info_by_display_name (seaf->repo_mgr, account->server, account->username, display_name);
         g_free (display_name);
         if (!info) {
             path_comps->root_path = g_strdup (repo_name);
@@ -103,7 +103,7 @@ parse_fuse_path_single_account (SeafAccount *account, const char *path, FusePath
 
         repo_name = tokens[1];
         display_name = g_strconcat (tokens[0], "/", tokens[1], NULL);
-        info = seaf_repo_manager_get_repo_info_by_name (seaf->repo_mgr, account->server, account->username, display_name);
+        info = seaf_repo_manager_get_repo_info_by_display_name (seaf->repo_mgr, account->server, account->username, display_name);
         g_free (display_name);
         if (!info) {
             ret = -ENOENT;
@@ -183,7 +183,6 @@ parse_fuse_path_multi_account (const char *path, FusePathComps *path_comps)
         }
         path_comps->repo_type = repo_type_from_string (tokens[1]);
         if (path_comps->repo_type == REPO_TYPE_UNKNOWN) {
-            account_info_free (account_info);
             ret = -ENOENT;
             goto out;
         }
@@ -197,7 +196,6 @@ parse_fuse_path_multi_account (const char *path, FusePathComps *path_comps)
         }
         path_comps->repo_type = repo_type_from_string (tokens[1]);
         if (path_comps->repo_type == REPO_TYPE_UNKNOWN) {
-            account_info_free (account_info);
             ret = -ENOENT;
             goto out;
         }
@@ -205,7 +203,7 @@ parse_fuse_path_multi_account (const char *path, FusePathComps *path_comps)
 
         repo_name = tokens[2];
         display_name = g_strconcat (tokens[1], "/", tokens[2], NULL);
-        info = seaf_repo_manager_get_repo_info_by_name (seaf->repo_mgr, account_info->server, account_info->username, display_name);
+        info = seaf_repo_manager_get_repo_info_by_display_name (seaf->repo_mgr, account_info->server, account_info->username, display_name);
         g_free (display_name);
         if (!info) {
             path_comps->root_path = g_strdup (repo_name);
@@ -222,17 +220,15 @@ parse_fuse_path_multi_account (const char *path, FusePathComps *path_comps)
         }
         path_comps->repo_type = repo_type_from_string (tokens[1]);
         if (path_comps->repo_type == REPO_TYPE_UNKNOWN) {
-            account_info_free (account_info);
             ret = -ENOENT;
             goto out;
         }
 
         repo_name = tokens[2];
         display_name = g_strconcat (tokens[1], "/", tokens[2], NULL);
-        info = seaf_repo_manager_get_repo_info_by_name (seaf->repo_mgr, account_info->server, account_info->username, display_name);
+        info = seaf_repo_manager_get_repo_info_by_display_name (seaf->repo_mgr, account_info->server, account_info->username, display_name);
         g_free (display_name);
         if (!info) {
-            account_info_free (account_info);
             ret = -ENOENT;
             goto out;
         }
@@ -245,6 +241,9 @@ parse_fuse_path_multi_account (const char *path, FusePathComps *path_comps)
     }
 
 out:
+    if (ret != 0 && account_info) {
+        account_info_free (account_info);
+    }
     g_free (path_nfc);
     g_strfreev (tokens);
     return ret;
@@ -381,14 +380,22 @@ seadrive_fuse_getattr(const char *path, struct stat *stbuf)
         return -ENOENT;
     }
 
-    if (!comps.repo_type || (!comps.repo_info && !comps.repo_path)) {
-        /* Root or category directory */
+    if (!comps.repo_type) {
+        /* Root directory */
         stbuf->st_mode = S_IFDIR | 0755;
         stbuf->st_nlink = 2;
         stbuf->st_size = 4096;
         stbuf->st_uid = uid;
         stbuf->st_gid = gid;
-        if (comps.account_info)
+        stbuf->st_mtime = get_account_dir_mtime ();
+    } else if (!comps.repo_info && !comps.repo_path) {
+        /* Account or category directory */
+        stbuf->st_mode = S_IFDIR | 0755;
+        stbuf->st_nlink = 2;
+        stbuf->st_size = 4096;
+        stbuf->st_uid = uid;
+        stbuf->st_gid = gid;
+        if (comps.multi_account)
             stbuf->st_mtime = get_category_dir_mtime (comps.account_info->server, comps.account_info->username, comps.repo_type);
         else
             stbuf->st_mtime = get_account_dir_mtime ();
@@ -1485,9 +1492,6 @@ seadrive_fuse_read(const char *path, char *buf, size_t size,
     }
 
     CachedFileHandle *handle = (CachedFileHandle *)info->fh;
-    if (handle->is_in_root) {
-        return file_cache_mgr_read_file_in_root (seaf->file_cache_mgr, handle, buf, size, offset);
-    }
 
     seaf->last_access_fs_time = (gint64)time(NULL);
 
@@ -1529,11 +1533,6 @@ seadrive_fuse_write(const char *path, const char *buf, size_t size,
     }
 
     handle = (CachedFileHandle *)info->fh;
-
-    if (handle->is_in_root) {
-        return file_cache_mgr_write_file_in_root (seaf->file_cache_mgr,
-                                                  handle, buf, size, offset);
-    }
 
     seaf->last_access_fs_time = (gint64)time(NULL);
 

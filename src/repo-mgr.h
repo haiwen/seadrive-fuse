@@ -63,6 +63,7 @@ struct _SeafRepo {
 
     gboolean      is_readonly;
 
+    // repo_uname is the same as display_name.
     char *repo_uname;
     char *worktree;
 
@@ -428,16 +429,16 @@ seaf_repo_manager_get_account_repo_ids (SeafRepoManager *mgr,
                                         const char *user);
 
 RepoInfo *
-seaf_repo_manager_get_repo_info_by_name (SeafRepoManager *mgr,
-                                         const char *server,
-                                         const char *user,
-                                         const char *name);
+seaf_repo_manager_get_repo_info_by_display_name (SeafRepoManager *mgr,
+                                                 const char *server,
+                                                 const char *user,
+                                                 const char *name);
 
 char *
-seaf_repo_manager_get_repo_id_by_name (SeafRepoManager *mgr,
-                                       const char *server,
-                                       const char *user,
-                                       const char *name);
+seaf_repo_manager_get_repo_id_by_display_name (SeafRepoManager *mgr,
+                                               const char *server,
+                                               const char *user,
+                                               const char *name);
 
 char *
 seaf_repo_manager_get_repo_display_name (SeafRepoManager *mgr,

@@ -23,7 +23,6 @@ typedef struct CachedFileHandle {
     BlockBuffer blk_buffer;
     gint64 file_size;
     gboolean is_readonly;
-    gboolean is_in_root;
     gboolean fetch_canceled;
 
     gint64 start_download_time;
@@ -48,9 +47,6 @@ file_cache_mgr_close_file_handle (CachedFileHandle *file_handle);
 
 gboolean
 cached_file_handle_is_readonly (CachedFileHandle *file_handle);
-
-gboolean
-cached_file_handle_is_in_root (CachedFileHandle *handle);
 
 gssize
 file_cache_mgr_read (FileCacheMgr *mgr, CachedFileHandle *handle,
@@ -228,19 +224,6 @@ file_cache_mgr_utimen (FileCacheMgr *mgr, const char *repo_id, const char *path,
  * These top-level files and folders are directly mapped into the "file-cache/root"
  * folder.
  */
-
-gssize
-file_cache_mgr_read_file_in_root (FileCacheMgr *mgr, CachedFileHandle *handle,
-                                  char *buf, size_t size, off_t offset);
-
-gssize
-file_cache_mgr_write_file_in_root (FileCacheMgr *mgr, CachedFileHandle *handle,
-                                   const char *buf, size_t size, off_t offset);
-
-gssize
-file_cache_mgr_write_file_in_root_by_path (FileCacheMgr *mgr,
-                                           const char *path,
-                                           const char *buf, size_t size, off_t offset);
 
 int
 file_cache_mgr_readdir_in_root (FileCacheMgr *mgr, const char *server, const char *user, const char *path, GHashTable *dirents);
