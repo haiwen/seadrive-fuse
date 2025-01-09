@@ -1311,7 +1311,6 @@ static void update_current_repos(HttpAPIGetResult *result, void *user_data)
     GHashTable *repo_hash;
     GList *added = NULL, *removed = NULL, *ptr;
     RepoInfo *info;
-    SeafRepo *repo;
 
     if (!result->success) {
         if (result->http_status == HTTP_SERVERR_BAD_GATEWAY ||
@@ -1357,17 +1356,7 @@ static void update_current_repos(HttpAPIGetResult *result, void *user_data)
     /* Mark repos removed on the server as delete-pending. */
     for (ptr = removed; ptr; ptr = ptr->next) {
         info = ptr->data;
-        repo = seaf_repo_manager_get_repo (seaf->repo_mgr, info->id);
-        if (repo) {
-            seaf_message ("Repo %s(%.8s) was deleted on server. Remove local repo.\n",
-                          repo->name, repo->id);
-            seaf_repo_manager_mark_repo_deleted (seaf->repo_mgr, repo, TRUE);
-            http_tx_manager_cancel_task (seaf->http_tx_mgr, info->id,
-                                         HTTP_TASK_TYPE_DOWNLOAD);
-            http_tx_manager_cancel_task (seaf->http_tx_mgr, info->id,
-                                         HTTP_TASK_TYPE_UPLOAD);
-            seaf_repo_unref (repo);
-        }
+        seaf_repo_manager_remove_account_repo (seaf->repo_mgr, info->id, account->server, account->username);
     }
 
 out:
