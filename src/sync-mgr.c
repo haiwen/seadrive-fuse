@@ -388,7 +388,7 @@ static const char *ignore_table[] = {
 };
 
 static GPatternSpec **ignore_patterns;
-static GPatternSpec* office_temp_ignore_patterns[4];
+static GPatternSpec* office_temp_ignore_patterns[5];
 
 static int update_repo_list_pulse (void *vmanager);
 
@@ -1010,7 +1010,9 @@ seaf_sync_manager_new (SeafileSession *seaf)
     /* for files like ~WRL0001.tmp for docx and *.tmp for xlsx and pptx */
     office_temp_ignore_patterns[1] = g_pattern_spec_new("*.tmp");
     office_temp_ignore_patterns[2] = g_pattern_spec_new(".~lock*#");
-    office_temp_ignore_patterns[3] = NULL;
+    /* for temporary files of WPS Office */
+    office_temp_ignore_patterns[3] = g_pattern_spec_new(".~*");
+    office_temp_ignore_patterns[4] = NULL;
 
     mgr->priv->del_confirmation_tasks = g_hash_table_new_full (g_str_hash, g_str_equal,
                                                            g_free,
