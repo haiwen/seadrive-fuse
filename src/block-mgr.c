@@ -199,10 +199,10 @@ seaf_block_manager_verify_block (SeafBlockManager *mgr,
     BlockHandle *h;
     char buf[10240];
     int n;
-    EVP_MD_CTX *ctx;
-    unsigned int len;
-    guint8 sha1[20];
-    char check_id[41];
+
+    GChecksum *cs;
+    const char *check_id;
+    gboolean ret;
 
     h = seaf_block_manager_open_block (mgr,
                                        store_id, version,
@@ -213,32 +213,34 @@ seaf_block_manager_verify_block (SeafBlockManager *mgr,
         return FALSE;
     }
 
-    ctx = EVP_MD_CTX_new();
-    EVP_DigestInit_ex(ctx, EVP_sha1(), NULL);
+    cs = g_checksum_new (G_CHECKSUM_SHA1);
     while (1) {
         n = seaf_block_manager_read_block (mgr, h, buf, sizeof(buf));
         if (n < 0) {
             seaf_warning ("Failed to read block %s:%.8s.\n", store_id, block_id);
             *io_error = TRUE;
+            g_checksum_free (cs);
             return FALSE;
         }
         if (n == 0)
             break;
 
-        EVP_DigestUpdate (ctx, buf, n);
+        g_checksum_update (cs, (guchar *)buf, n);
     }
 
     seaf_block_manager_close_block (mgr, h);
     seaf_block_manager_block_handle_free (mgr, h);
 
-    EVP_DigestFinal_ex (ctx, sha1, &len);
-    EVP_MD_CTX_free(ctx);
-    rawdata_to_hex (sha1, check_id, 20);
+    check_id = g_checksum_get_string (cs);
 
     if (strcmp (check_id, block_id) == 0)
-        return TRUE;
+        ret = TRUE;
     else
-        return FALSE;
+        ret = FALSE;
+
+    g_checksum_free (cs);
+
+    return ret;
 }
 
 int

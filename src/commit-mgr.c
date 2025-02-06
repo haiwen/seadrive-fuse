@@ -5,7 +5,6 @@
 #include "log.h"
 
 #include <jansson.h>
-#include <openssl/evp.h>
 
 #include "utils.h"
 #include "db.h"
@@ -38,26 +37,25 @@ commit_from_json_object (const char *id, json_t *object);
 
 static void compute_commit_id (SeafCommit* commit)
 {
-    EVP_MD_CTX *ctx;
-    int len;
+    GChecksum *ctx = g_checksum_new(G_CHECKSUM_SHA1);
     uint8_t sha1[20];    
     gint64 ctime_n;
 
-    ctx = EVP_MD_CTX_new();
-    EVP_DigestInit_ex(ctx, EVP_sha1(), NULL);
-    EVP_DigestUpdate (ctx, commit->root_id, 41);
-    EVP_DigestUpdate (ctx, commit->creator_id, 41);
+    g_checksum_update (ctx, (guchar *)commit->root_id, 41);
+    g_checksum_update (ctx, (guchar *)commit->creator_id, 41);
     if (commit->creator_name)
-        EVP_DigestUpdate (ctx, commit->creator_name, strlen(commit->creator_name)+1);
-    EVP_DigestUpdate (ctx, commit->desc, strlen(commit->desc)+1);
+        g_checksum_update (ctx, (guchar *)commit->creator_name, strlen(commit->creator_name)+1);
+    g_checksum_update (ctx, (guchar *)commit->desc, strlen(commit->desc)+1);
 
     /* convert to network byte order */
     ctime_n = hton64 (commit->ctime);
-    EVP_DigestUpdate (ctx, &ctime_n, sizeof(ctime_n));
-    EVP_DigestFinal_ex (ctx, sha1, &len);
-    EVP_MD_CTX_free(ctx);
+    g_checksum_update (ctx, (guchar *)&ctime_n, sizeof(ctime_n));
+
+    gsize len = 20;
+    g_checksum_get_digest (ctx, sha1, &len);
     
     rawdata_to_hex (sha1, commit->commit_id, 20);
+    g_checksum_free (ctx);
 }
 
 SeafCommit*

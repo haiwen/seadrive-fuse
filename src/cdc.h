@@ -6,15 +6,7 @@
 #include <glib.h>
 #include <stdint.h>
 
-#ifdef HAVE_MD5
-#include "md5.h"
-#define get_checksum md5
-#define CHECKSUM_LENGTH 16
-#else
-#include <openssl/evp.h>
-#define get_checksum sha1
 #define CHECKSUM_LENGTH 20
-#endif
 
 #ifndef O_BINARY
 #define O_BINARY 0

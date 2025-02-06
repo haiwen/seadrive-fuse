@@ -2277,6 +2277,13 @@ auto_sync_account_repos (SeafSyncManager *manager, const char *server, const cha
             continue;
         }
 
+#ifdef USE_GPL_CRYPTO
+        if (repo->version == 0 || (repo->encrypted && repo->enc_version < 2)) {
+            seaf_repo_unref (repo);
+            continue;
+        }
+#endif
+
         if (!repo->token) {
             /* If the user has logged out of the account, the repo token would
              * be null */

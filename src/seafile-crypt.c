@@ -1,12 +1,22 @@
 /* -*- Mode: C; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 
+#include "common.h"
+
 #include <string.h>
 #include <glib.h>
 #include "utils.h"
 #include "seafile-crypt.h"
+
+#ifdef USE_GPL_CRYPTO
+#include <gnutls/gnutls.h>
+#include <gnutls/crypto.h>
+#include <nettle/pbkdf2.h>
+#else
 #include <openssl/rand.h>
 #include <openssl/aes.h>
 #include <openssl/evp.h>
+#endif
+
 #include "password-hash.h"
 
 #include "log.h"
@@ -43,6 +53,34 @@ seafile_derive_key (const char *data_in, int in_len, int version,
                     const char *repo_salt,
                     unsigned char *key, unsigned char *iv)
 {
+#ifdef USE_GPL_CRYPTO
+    unsigned char repo_salt_bin[32];
+
+    if (version == 4)
+        hex_to_rawdata (repo_salt, repo_salt_bin, 32);
+
+    switch (version) {
+    case 1:
+        seaf_warning ("Encrypted library version %d is not supported.\n", version);
+        return -1;
+    case 2:
+        pbkdf2_hmac_sha256 (in_len, (const guchar *)data_in, KEYGEN_ITERATION2,
+                            sizeof(salt), salt, 32, key);
+        pbkdf2_hmac_sha256 (32, (const guchar *)key, 10, sizeof(salt), salt, 16, iv);
+    case 3:
+        seaf_warning ("Encrypted library version %d is not supported.\n", version);
+        return -1;
+    case 4:
+        pbkdf2_hmac_sha256 (in_len, (const guchar *)data_in, KEYGEN_ITERATION2,
+                            sizeof(repo_salt_bin), repo_salt_bin, 32, key);
+        pbkdf2_hmac_sha256 (32, (const guchar *)key, 10, sizeof(repo_salt_bin), repo_salt_bin, 16, iv);
+    default:
+        seaf_warning ("Encrypted library version %d is not supported.\n", version);
+        return -1;
+    }
+
+    return 0;
+#else
     if (version >= 3) {
         unsigned char repo_salt_bin[32];
         hex_to_rawdata (repo_salt, repo_salt_bin, 32);
@@ -87,6 +125,7 @@ seafile_derive_key (const char *data_in, int in_len, int version,
                                3,   /* iteration times */
                                key, /* the derived key */
                                iv); /* IV, initial vector */
+#endif
 }
 
 int
@@ -98,11 +137,18 @@ seafile_generate_random_key (const char *passwd, char *random_key,
     int outlen;
     unsigned char key[32], iv[16];
 
+#ifdef USE_GPL_CRYPTO
+    if (gnutls_rnd (GNUTLS_RND_RANDOM, secret_key, sizeof(secret_key)) < 0) {
+        seaf_warning ("Failed to generate secret key for repo encryption.\n");
+        return -1;
+    }
+#else
     if (RAND_bytes (secret_key, sizeof(secret_key)) != 1) {
         seaf_warning ("Failed to generate secret key for repo encryption "
                       "with RAND_bytes(), use RAND_pseudo_bytes().\n");
         return -1;
     }
+#endif
 
     seafile_derive_key (passwd, strlen(passwd), version, repo_salt, key, iv);
 
@@ -330,6 +376,135 @@ seafile_update_random_key (const char *old_passwd, const char *old_random_key,
     return 0;
 }
 
+#ifdef USE_GPL_CRYPTO
+
+int
+seafile_encrypt (char **data_out,
+                 int *out_len,
+                 const char *data_in,
+                 const int in_len,
+                 SeafileCrypt *crypt)
+{
+    char *buf = NULL, *enc_buf = NULL;
+    int buf_size, remain;
+    guint8 padding;
+    gnutls_cipher_hd_t handle;
+    gnutls_datum_t key, iv;
+    int rc, ret = 0;
+
+    buf_size = BLK_SIZE * ((in_len / BLK_SIZE) + 1);
+    remain = buf_size - in_len;
+    buf = g_new (char, buf_size);
+
+    memcpy (buf, data_in, in_len);
+    padding = (guint8)remain;
+    memset (buf + in_len, padding, remain);
+
+    key.data = crypt->key;
+    key.size = sizeof(crypt->key);
+    iv.data = crypt->iv;
+    iv.size = sizeof(crypt->iv);
+
+    if (crypt->version == 1 || crypt->version == 3) {
+        seaf_warning ("Encrypted library version % is not supported.\n", crypt->version);
+        ret = -1;
+        goto out;
+    } else {
+        rc = gnutls_cipher_init (&handle, GNUTLS_CIPHER_AES_256_CBC, &key, &iv);
+        if (rc < 0) {
+            seaf_warning ("Failed to init cipher: %s\n", gnutls_strerror(rc));
+            ret = -1;
+            goto out;
+        }
+    }
+
+    enc_buf = g_new (char, buf_size);
+    rc = gnutls_cipher_encrypt2 (handle, buf, buf_size, enc_buf, buf_size);
+    if (rc < 0) {
+        seaf_warning ("Failed to encrypt: %s\n", gnutls_strerror(rc));
+        ret = -1;
+        gnutls_cipher_deinit (handle);
+        goto out;
+    }
+
+    gnutls_cipher_deinit (handle);
+
+out:
+    g_free (buf);
+    if (ret < 0) {
+        g_free (enc_buf);
+        *data_out = NULL;
+        *out_len = -1;
+    } else {
+        *data_out = enc_buf;
+        *out_len = buf_size;
+    }
+    return ret;
+}
+
+int
+seafile_decrypt (char **data_out,
+                 int *out_len,
+                 const char *data_in,
+                 const int in_len,
+                 SeafileCrypt *crypt)
+{
+    char *dec_buf = NULL;
+    gnutls_cipher_hd_t handle;
+    gnutls_datum_t key, iv;
+    int rc, ret = 0;
+    guint8 padding;
+    int remain;
+
+    if (in_len <= 0 || in_len % BLK_SIZE != 0) {
+        seaf_warning ("Invalid encrypted buffer size.\n");
+        return -1;
+    }
+
+    key.data = crypt->key;
+    key.size = sizeof(crypt->key);
+    iv.data = crypt->iv;
+    iv.size = sizeof(crypt->iv);
+
+    if (crypt->version == 1 || crypt->version == 3) {
+        seaf_warning ("Encrypted library version %d is not supported.\n", crypt->version);
+        ret = -1;
+        goto out;
+    } else {
+        rc = gnutls_cipher_init (&handle, GNUTLS_CIPHER_AES_256_CBC, &key, &iv);
+        if (rc < 0) {
+            seaf_warning ("Failed to init cipher: %s\n", gnutls_strerror(rc));
+            ret = -1;
+            goto out;
+        }
+    }
+
+    dec_buf = g_new (char, in_len);
+    rc = gnutls_cipher_decrypt2 (handle, data_in, in_len, dec_buf, in_len);
+    if (rc < 0) {
+        seaf_warning ("Failed to decrypt data: %s\n", gnutls_strerror(rc));
+        ret = -1;
+        gnutls_cipher_deinit (handle);
+        goto out;
+    }
+
+    padding = dec_buf[in_len - 1];
+    remain = padding;
+    *out_len = (in_len - remain);
+    *data_out = dec_buf;
+
+    gnutls_cipher_deinit (handle);
+out:
+    if (ret < 0) {
+        g_free (dec_buf);
+        *data_out = NULL;
+        *out_len = -1;
+    }
+    return ret;
+}
+
+#else
+
 int
 seafile_encrypt (char **data_out,
                  int *out_len,
@@ -539,3 +714,5 @@ dec_error:
     return -1;
     
 }
+
+#endif  /* USE_GPL_CRYPTO */

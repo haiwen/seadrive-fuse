@@ -99,7 +99,7 @@ do {                                                         \
     memcpy (file_descr->blk_sha1s +                          \
             file_descr->block_nr * CHECKSUM_LENGTH,          \
             chunk_descr.checksum, CHECKSUM_LENGTH);          \
-    EVP_DigestUpdate (file_ctx, chunk_descr.checksum, 20);   \
+    g_checksum_update (file_ctx, chunk_descr.checksum, 20);   \
     file_descr->block_nr++;                                  \
     offset += _block_sz;                                     \
                                                              \
@@ -114,16 +114,18 @@ int file_chunk_cdc(int fd_src,
                    SeafileCrypt *crypt,
                    gboolean write_data)
 {
-    char *buf;
+    char *buf = NULL;
     uint32_t buf_sz;
     unsigned int len;
-    EVP_MD_CTX *file_ctx;
+    GChecksum *file_ctx = g_checksum_new (G_CHECKSUM_SHA1);
     CDCDescriptor chunk_descr;
+    int ret = 0;
 
     SeafStat sb;
     if (seaf_fstat (fd_src, &sb) < 0) {
         seaf_warning ("CDC: failed to stat: %s.\n", strerror(errno));
-        return -1;
+        ret = -1;
+        goto out;
     }
     uint64_t expected_size = sb.st_size;
 
@@ -133,16 +135,14 @@ int file_chunk_cdc(int fd_src,
 
     int fingerprint = 0;
     int offset = 0;
-    int ret = 0;
     int tail, cur, rsize;
 
     buf_sz = file_descr->block_max_sz;
     buf = chunk_descr.block_buf = malloc (buf_sz);
-    if (!buf)
-        return -1;
-
-    file_ctx = EVP_MD_CTX_new();
-    EVP_DigestInit_ex(file_ctx, EVP_sha1(), NULL);
+    if (!buf) {
+        ret = -1;
+        goto out;
+    }
 
     /* buf: a fix-sized buffer.
      * cur: data behind (inclusive) this offset has been scanned.
@@ -159,18 +159,16 @@ int file_chunk_cdc(int fd_src,
         ret = readn (fd_src, buf + tail, rsize);
         if (ret < 0) {
             seaf_warning ("CDC: failed to read: %s.\n", strerror(errno));
-            EVP_MD_CTX_free(file_ctx);
-            free (buf);
-            return -1;
+            ret = -1;
+            goto out;
         }
         tail += ret;
         file_descr->file_size += ret;
 
         if (file_descr->file_size > expected_size) {
             seaf_warning ("File size changed while chunking.\n");
-            EVP_MD_CTX_free(file_ctx);
-            free (buf);
-            return -1;
+            ret = -1;
+            goto out;
         }
 
         /* We've read all the data in this file. Output the block immediately
@@ -182,9 +180,8 @@ int file_chunk_cdc(int fd_src,
             if (tail > 0) {
                 if (file_descr->block_nr == file_descr->max_block_nr) {
                     seaf_warning ("Block id array is not large enough, bail out.\n");
-                    EVP_MD_CTX_free(file_ctx);
-                    free (buf);
-                    return -1;
+                    ret = -1;
+                    goto out;
                 }
                 WRITE_CDC_BLOCK (tail, write_data);
             }
@@ -209,9 +206,8 @@ int file_chunk_cdc(int fd_src,
             {
                 if (file_descr->block_nr == file_descr->max_block_nr) {
                     seaf_warning ("Block id array is not large enough, bail out.\n");
-                    EVP_MD_CTX_free(file_ctx);
-                    free (buf);
-                    return -1;
+                    ret = -1;
+                    goto out;
                 }
 
                 WRITE_CDC_BLOCK (cur + 1, write_data);
@@ -222,12 +218,14 @@ int file_chunk_cdc(int fd_src,
         }
     }
 
-    EVP_DigestFinal_ex (file_ctx, file_descr->file_sum, &len);
+    gsize chk_sum_len = CHECKSUM_LENGTH;
+    g_checksum_get_digest (file_ctx, file_descr->file_sum, &chk_sum_len);
 
-    EVP_MD_CTX_free(file_ctx);
+out:
     free (buf);
+    g_checksum_free (file_ctx);
 
-    return 0;
+    return ret;
 }
 
 int filename_chunk_cdc(const char *filename,

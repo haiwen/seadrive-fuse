@@ -2,7 +2,7 @@ dnl Process this file with autoconf to produce a configure script.
 
 
 AC_PREREQ(2.61)
-AC_INIT([seadrive], [2.0.16], [jonathan.xu@seafile.com])
+AC_INIT([seadrive], [3.0.12], [jonathan.xu@seafile.com])
 AC_CONFIG_HEADER([config.h])
 
 AC_CONFIG_MACRO_DIR([m4])
@@ -77,7 +77,6 @@ fi
 
 AC_CHECK_LIB(pthread, pthread_create, [echo "found library pthread"], AC_MSG_ERROR([*** Unable to find pthread library]), )
 AC_CHECK_LIB(sqlite3, sqlite3_open,[echo "found library sqlite3"] , AC_MSG_ERROR([*** Unable to find sqlite3 library]), )
-AC_CHECK_LIB(crypto, SHA1_Init, [echo "found library crypto"], AC_MSG_ERROR([*** Unable to find openssl crypto library]), )
 
 dnl Do we need to use AX_LIB_SQLITE3 to check sqlite?
 dnl AX_LIB_SQLITE3
@@ -158,10 +157,31 @@ CURL_REQUIRED=7.17
 FUSE_REQUIRED=2.7.3
 ZLIB_REQUIRED=1.2.0
 WS_REQUIRED=4.0.20
+GNUTLS_REQUIRED=3.3.0
 
-PKG_CHECK_MODULES(SSL, [openssl])
-AC_SUBST(SSL_CFLAGS)
-AC_SUBST(SSL_LIBS)
+AC_ARG_WITH([gpl-crypto],
+            AS_HELP_STRING([--with-gpl-crypto=[yes|no]],
+                [Use GPL compatible crypto libraries. Default no.]),
+            [ gpl_crypto=$with_gpl_crypto ],
+            [ gpl_crypto="no"])
+
+AS_IF([test "x$gpl_crypto" = "xyes"], [
+    PKG_CHECK_MODULES([GNUTLS], [gnutls >= $GNUTLS_REQUIRED])
+    AC_SUBST([GNUTLS_CFLAGS])
+    AC_SUBST([GNUTLS_LIBS])
+
+    PKG_CHECK_MODULES([NETTLE], [nettle])
+    AC_SUBST([NETTLE_CFLAGS])
+    AC_SUBST([NETTLE_LIBS])
+
+    AC_DEFINE([USE_GPL_CRYPTO], [1], [Use GPL-compatible crypto libraries])
+], [
+   AC_CHECK_LIB(crypto, SHA1_Init, [echo "found library crypto"], AC_MSG_ERROR([*** Unable to find openssl crypto library]), )
+
+    PKG_CHECK_MODULES([SSL], [openssl])
+    AC_SUBST([SSL_CFLAGS])
+    AC_SUBST([SSL_LIBS])
+])
 
 PKG_CHECK_MODULES(GLIB2, [glib-2.0 >= $GLIB_REQUIRED])
 AC_SUBST(GLIB2_CFLAGS)

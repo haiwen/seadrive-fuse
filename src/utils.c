@@ -23,10 +23,12 @@
 #include <stdarg.h>
 
 #include <string.h>
+#ifndef USE_GPL_CRYPTO
 #include <openssl/hmac.h>
 #include <openssl/evp.h>
 #include <openssl/bio.h>
 #include <openssl/buffer.h>
+#endif
 
 #include <glib.h>
 #include <glib/gstdio.h>
@@ -475,18 +477,16 @@ ccnet_expand_path (const char *src)
 int
 calculate_sha1 (unsigned char *sha1, const char *msg, int len)
 {
-    EVP_MD_CTX *c;
-    unsigned int l;
+    GChecksum *c;
+    gsize cs_len = 20;
 
     if (len < 0)
         len = strlen(msg);
 
-    c = EVP_MD_CTX_new();
-    EVP_DigestInit_ex(c, EVP_sha1(), NULL);
-    EVP_DigestUpdate (c, msg, len);
-    EVP_DigestFinal_ex (c, sha1, &l);
-    EVP_MD_CTX_free(c);
-
+    c = g_checksum_new (G_CHECKSUM_SHA1);
+    g_checksum_update(c, (const unsigned char *)msg, len);    
+    g_checksum_get_digest (c, sha1, &cs_len);
+    g_checksum_free (c);
     return 0;
 }
 
