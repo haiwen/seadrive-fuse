@@ -6,8 +6,6 @@
 #include <fcntl.h>
 #include <arpa/inet.h>
 
-#include <openssl/evp.h>
-
 #include "seafile-session.h"
 #include "seafile-error.h"
 #include "fs-mgr.h"
@@ -291,8 +289,8 @@ seafile_write_chunk (const char *repo_id,
                      uint8_t *checksum,
                      gboolean write_data)
 {
-    EVP_MD_CTX *ctx;
-    unsigned int len;
+    GChecksum *ctx = g_checksum_new (G_CHECKSUM_SHA1);
+    gsize len = 20;
     int ret = 0;
 
     /* Encrypt before write to disk if needed, and we don't encrypt
@@ -308,29 +306,26 @@ seafile_write_chunk (const char *repo_id,
                                crypt);
         if (ret != 0) {
             seaf_warning ("Error: failed to encrypt block\n");
+            g_checksum_free (ctx);
             return -1;
         }
 
-        ctx = EVP_MD_CTX_new();
-        EVP_DigestInit_ex(ctx, EVP_sha1(), NULL);
-        EVP_DigestUpdate (ctx, encrypted_buf, enc_len);
-        EVP_DigestFinal_ex (ctx, checksum, &len);
-        EVP_MD_CTX_free(ctx);
+        g_checksum_update (ctx, (unsigned char *)encrypted_buf, enc_len);
+        g_checksum_get_digest (ctx, checksum, &len);
 
         if (write_data)
             ret = do_write_chunk (repo_id, version, checksum, encrypted_buf, enc_len);
         g_free (encrypted_buf);
     } else {
         /* not a encrypted repo, go ahead */
-        ctx = EVP_MD_CTX_new();
-        EVP_DigestInit_ex(ctx, EVP_sha1(), NULL);
-        EVP_DigestUpdate (ctx, chunk->block_buf, chunk->len);
-        EVP_DigestFinal_ex (ctx, checksum, &len);
-        EVP_MD_CTX_free(ctx);
+        g_checksum_update (ctx, (unsigned char *)chunk->block_buf, chunk->len);
+        g_checksum_get_digest (ctx, checksum, &len);
 
         if (write_data)
             ret = do_write_chunk (repo_id, version, checksum, chunk->block_buf, chunk->len);
     }
+
+    g_checksum_free (ctx);
 
     return ret;
 }
@@ -697,10 +692,10 @@ seafile_save (SeafFSManager *fs_mgr,
 
 static void compute_dir_id_v0 (SeafDir *dir, GList *entries)
 {
-    EVP_MD_CTX *ctx;
-    unsigned len;
+    GChecksum *ctx;
     GList *p;
     uint8_t sha1[20];
+    gsize len = 20;
     SeafDirent *dent;
     guint32 mode_le;
 
@@ -710,23 +705,23 @@ static void compute_dir_id_v0 (SeafDir *dir, GList *entries)
         return;
     }
 
-    ctx = EVP_MD_CTX_new();
-    EVP_DigestInit_ex(ctx, EVP_sha1(), NULL);
+    ctx = g_checksum_new (G_CHECKSUM_SHA1);
     for (p = entries; p; p = p->next) {
         dent = (SeafDirent *)p->data;
-        EVP_DigestUpdate (ctx, dent->id, 40);
-        EVP_DigestUpdate (ctx, dent->name, dent->name_len);
+        g_checksum_update (ctx, (unsigned char *)dent->id, 40);
+        g_checksum_update (ctx, (unsigned char *)dent->name, dent->name_len);
         /* Convert mode to little endian before compute. */
         if (G_BYTE_ORDER == G_BIG_ENDIAN)
             mode_le = GUINT32_SWAP_LE_BE (dent->mode);
         else
             mode_le = dent->mode;
-        EVP_DigestUpdate (ctx, &mode_le, sizeof(mode_le));
+        g_checksum_update (ctx, (unsigned char *)&mode_le, sizeof(mode_le));
     }
-    EVP_DigestFinal_ex (ctx, sha1, &len);
-    EVP_MD_CTX_free(ctx);
+    g_checksum_get_digest (ctx, sha1, &len);
 
     rawdata_to_hex (sha1, dir->dir_id, 20);
+
+    g_checksum_free (ctx);
 }
 
 SeafDir *
@@ -2050,9 +2045,9 @@ verify_seafdir_v0 (const char *dir_id, const uint8_t *data, int len,
     const uint8_t *ptr;
     int remain;
     int dirent_base_size;
-    EVP_MD_CTX *ctx;
-    unsigned int l;
+    GChecksum *ctx;
     uint8_t sha1[20];
+    gsize cs_len = 20;
     char check_id[41];
 
     if (len < sizeof(SeafdirOndisk)) {
@@ -2071,8 +2066,7 @@ verify_seafdir_v0 (const char *dir_id, const uint8_t *data, int len,
     }
 
     if (verify_id) {
-        ctx = EVP_MD_CTX_new();
-        EVP_DigestInit_ex(ctx, EVP_sha1(), NULL);
+        ctx = g_checksum_new (G_CHECKSUM_SHA1);
     }
 
     dirent_base_size = 2 * sizeof(guint32) + 40;
@@ -2098,18 +2092,18 @@ verify_seafdir_v0 (const char *dir_id, const uint8_t *data, int len,
             if (G_BYTE_ORDER == G_BIG_ENDIAN)
                 mode = GUINT32_SWAP_LE_BE (mode);
 
-            EVP_DigestUpdate (ctx, id, 40);
-            EVP_DigestUpdate (ctx, name, name_len);
-            EVP_DigestUpdate (ctx, &mode, sizeof(mode));
+            g_checksum_update (ctx, (unsigned char *)id, 40);
+            g_checksum_update (ctx, (unsigned char *)name, name_len);
+            g_checksum_update (ctx, (unsigned char *)&mode, sizeof(mode));
         }
     }
 
     if (!verify_id)
         return TRUE;
 
-    EVP_DigestFinal_ex (ctx, sha1, &l);
-    EVP_MD_CTX_free(ctx);
+    g_checksum_get_digest (ctx, sha1, &cs_len);
     rawdata_to_hex (sha1, check_id, 20);
+    g_checksum_free (ctx);
 
     if (strcmp (check_id, dir_id) == 0)
         return TRUE;
@@ -2179,9 +2173,9 @@ static gboolean
 verify_seafile_v0 (const char *id, const void *data, int len, gboolean verify_id)
 {
     const SeafileOndisk *ondisk = data;
-    EVP_MD_CTX *ctx;
-    unsigned int l;
+    GChecksum *ctx;
     uint8_t sha1[20];
+    gsize cs_len = 20;
     char check_id[41];
 
     if (len < sizeof(SeafileOndisk)) {
@@ -2203,11 +2197,10 @@ verify_seafile_v0 (const char *id, const void *data, int len, gboolean verify_id
     if (!verify_id)
         return TRUE;
 
-    ctx = EVP_MD_CTX_new();
-    EVP_DigestInit_ex(ctx, EVP_sha1(), NULL);
-    EVP_DigestUpdate (ctx, ondisk->block_ids, len - sizeof(SeafileOndisk));
-    EVP_DigestFinal_ex (ctx, sha1, &l);
-    EVP_MD_CTX_free(ctx);
+    ctx = g_checksum_new (G_CHECKSUM_SHA1);
+    g_checksum_update (ctx, ondisk->block_ids, len - sizeof(SeafileOndisk));
+    g_checksum_get_digest (ctx, sha1, &cs_len);
+    g_checksum_free (ctx);
 
     rawdata_to_hex (sha1, check_id, 20);
 

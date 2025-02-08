@@ -19,7 +19,9 @@
 #include "log.h"
 #include "utils.h"
 #include "seafile-config.h"
+#ifndef USE_GPL_CRYPTO
 #include "curl-init.h"
+#endif
 
 #include "cdc.h"
 
@@ -489,7 +491,9 @@ main (int argc, char **argv)
 
     set_signal_handlers (seaf);
 
+#ifndef USE_GPL_CRYPTO
     seafile_curl_init();
+#endif
 
     seaf = seafile_session_new (seafile_dir);
     if (!seaf) {
@@ -542,7 +546,9 @@ main (int argc, char **argv)
     fuse_main(args.argc, args.argv, &seadrive_fuse_ops, NULL);
     fuse_opt_free_args (&args);
 
+#ifndef USE_GPL_CRYPTO
     seafile_curl_deinit();
+#endif
 
     return 0;
 }

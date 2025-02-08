@@ -6,10 +6,12 @@
 #include <curl/curl.h>
 #include <event2/buffer.h>
 
+#ifndef USE_GPL_CRYPTO
 #include <openssl/pem.h>
 #include <openssl/x509.h>
 #include <openssl/bio.h>
 #include <openssl/ssl.h>
+#endif
 
 #include "seafile-config.h"
 
@@ -387,6 +389,8 @@ http_tx_manager_start (HttpTxManager *mgr)
 
 /* Common Utility Functions. */
 
+#ifndef USE_GPL_CRYPTO
+
 #ifndef __LINUX__
 static void
 load_ca_bundle (CURL *curl)
@@ -401,6 +405,8 @@ load_ca_bundle (CURL *curl)
     curl_easy_setopt (curl, CURLOPT_CAINFO, ca_bundle_path);
 }
 #endif  /* __LINUX__ */
+
+#endif  /* USE_GPL_CRYPTO */
 
 static void
 set_proxy (CURL *curl, gboolean is_https)
@@ -502,10 +508,12 @@ http_get_common (CURL *curl, const char *url,
         curl_easy_setopt(curl, CURLOPT_LOW_SPEED_TIME, timeout_sec);
     }
 
+#ifndef USE_GPL_CRYPTO
     if (seaf->disable_verify_certificate) {
         curl_easy_setopt (curl, CURLOPT_SSL_VERIFYPEER, 0L);
         curl_easy_setopt (curl, CURLOPT_SSL_VERIFYHOST, 0L);
     }
+#endif
 
     HttpResponse rsp;
     memset (&rsp, 0, sizeof(rsp));
@@ -520,8 +528,10 @@ http_get_common (CURL *curl, const char *url,
     gboolean is_https = (strncasecmp(url, "https", strlen("https")) == 0);
     set_proxy (curl, is_https);
 
+#ifndef USE_GPL_CRYPTO
 #if defined __APPLE__
     load_ca_bundle (curl);
+#endif
 #endif
 
     int rc = curl_easy_perform (curl);
@@ -720,10 +730,12 @@ http_put (CURL *curl, const char *url, const char *token,
         curl_easy_setopt(curl, CURLOPT_LOW_SPEED_TIME, HTTP_TIMEOUT_SEC);
     }
 
+#ifndef USE_GPL_CRYPTO
     if (seaf->disable_verify_certificate) {
         curl_easy_setopt (curl, CURLOPT_SSL_VERIFYPEER, 0L);
         curl_easy_setopt (curl, CURLOPT_SSL_VERIFYHOST, 0L);
     }
+#endif
 
     HttpRequest req;
     if (req_content) {
@@ -753,8 +765,10 @@ http_put (CURL *curl, const char *url, const char *token,
     gboolean is_https = (strncasecmp(url, "https", strlen("https")) == 0);
     set_proxy (curl, is_https);
 
+#ifndef USE_GPL_CRYPTO
 #if defined __APPLE__
     load_ca_bundle (curl);
+#endif
 #endif
 
     int rc = curl_easy_perform (curl);
@@ -812,10 +826,12 @@ http_post_common (CURL *curl, const char *url,
         curl_easy_setopt(curl, CURLOPT_LOW_SPEED_TIME, timeout_sec);
     }
 
+#ifndef USE_GPL_CRYPTO
     if (seaf->disable_verify_certificate) {
         curl_easy_setopt (curl, CURLOPT_SSL_VERIFYPEER, 0L);
         curl_easy_setopt (curl, CURLOPT_SSL_VERIFYHOST, 0L);
     }
+#endif
 
     HttpRequest req;
     memset (&req, 0, sizeof(req));
@@ -834,8 +850,10 @@ http_post_common (CURL *curl, const char *url,
         curl_easy_setopt(curl, CURLOPT_WRITEDATA, &rsp);
     }
 
+#ifndef USE_GPL_CRYPTO
 #if defined __APPLE__
     load_ca_bundle (curl);
+#endif
 #endif
 
     gboolean is_https = (strncasecmp(url, "https", strlen("https")) == 0);
@@ -1004,16 +1022,20 @@ http_delete_common (CURL *curl, const char *url,
         curl_easy_setopt(curl, CURLOPT_LOW_SPEED_TIME, timeout_sec);
     }
 
+#ifndef USE_GPL_CRYPTO
     if (seaf->disable_verify_certificate) {
         curl_easy_setopt (curl, CURLOPT_SSL_VERIFYPEER, 0L);
         curl_easy_setopt (curl, CURLOPT_SSL_VERIFYHOST, 0L);
     }
+#endif
 
     curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
 
 
+#ifndef USE_GPL_CRYPTO
 #if defined __APPLE__
     load_ca_bundle (curl);
+#endif
 #endif
 
     gboolean is_https = (strncasecmp(url, "https", strlen("https")) == 0);
