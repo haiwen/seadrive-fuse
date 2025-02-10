@@ -82,7 +82,7 @@ struct _HttpTxPriv {
 
     SeafTimer *reset_bytes_timer;
 
-    char *ca_bundle_path;
+    char *env_ca_bundle_path;
 
     // Uploaded file count
     gint uploaded;
@@ -290,6 +290,7 @@ http_tx_manager_new (struct _SeafileSession *seaf)
 {
     HttpTxManager *mgr = g_new0 (HttpTxManager, 1);
     HttpTxPriv *priv = g_new0 (HttpTxPriv, 1);
+    const char *env_ca_path = NULL;
 
     mgr->seaf = seaf;
 
@@ -303,7 +304,9 @@ http_tx_manager_new (struct _SeafileSession *seaf)
     priv->connection_pools = g_hash_table_new (g_str_hash, g_str_equal);
     pthread_mutex_init (&priv->pools_lock, NULL);
 
-    priv->ca_bundle_path = g_build_filename (seaf->seaf_dir, "ca-bundle.pem", NULL);
+    env_ca_path = g_getenv("SEAFILE_SSL_CA_PATH");
+    if (env_ca_path)
+        priv->env_ca_bundle_path = g_strdup (env_ca_path);
 
     priv->uploading_files = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, NULL);
     priv->uploaded_files = g_queue_new ();
@@ -391,20 +394,41 @@ http_tx_manager_start (HttpTxManager *mgr)
 
 #ifndef USE_GPL_CRYPTO
 
-#ifndef __LINUX__
-static void
-load_ca_bundle (CURL *curl)
-{
-    char *ca_bundle_path = seaf->http_tx_mgr->priv->ca_bundle_path;
+char *ca_paths[] = {
+    "/etc/ssl/certs/ca-certificates.crt",
+    "/etc/ssl/certs/ca-bundle.crt",
+    "/etc/pki/tls/certs/ca-bundle.crt",
+    "/usr/share/ssl/certs/ca-bundle.crt",
+    "/usr/local/share/certs/ca-root-nss.crt",
+    "/etc/ssl/cert.pem",
+};
 
-    /* On MacOS the certs are loaded by seafile applet instead of seaf-daemon  */
-    if (!seaf_util_exists (ca_bundle_path)) {
-        return;
+static void
+load_ca_bundle(CURL *curl)
+{
+    const char *env_ca_path = seaf->http_tx_mgr->priv->env_ca_bundle_path;
+    int i;
+    const char *ca_path;
+    gboolean found = FALSE;
+
+    for (i = 0; i < sizeof(ca_paths) / sizeof(ca_paths[0]); i++) {
+        ca_path = ca_paths[i];
+        if (seaf_util_exists (ca_path)) {
+            found = TRUE;
+            break;
+        }
     }
 
-    curl_easy_setopt (curl, CURLOPT_CAINFO, ca_bundle_path);
+    if (env_ca_path) {
+        if (seaf_util_exists (env_ca_path)) {
+            curl_easy_setopt (curl, CURLOPT_CAINFO, env_ca_path);
+            return;
+        }
+    }
+
+    if (found)
+        curl_easy_setopt (curl, CURLOPT_CAINFO, ca_path);
 }
-#endif  /* __LINUX__ */
 
 #endif  /* USE_GPL_CRYPTO */
 
@@ -529,9 +553,7 @@ http_get_common (CURL *curl, const char *url,
     set_proxy (curl, is_https);
 
 #ifndef USE_GPL_CRYPTO
-#if defined __APPLE__
     load_ca_bundle (curl);
-#endif
 #endif
 
     int rc = curl_easy_perform (curl);
@@ -766,9 +788,7 @@ http_put (CURL *curl, const char *url, const char *token,
     set_proxy (curl, is_https);
 
 #ifndef USE_GPL_CRYPTO
-#if defined __APPLE__
     load_ca_bundle (curl);
-#endif
 #endif
 
     int rc = curl_easy_perform (curl);
@@ -851,9 +871,7 @@ http_post_common (CURL *curl, const char *url,
     }
 
 #ifndef USE_GPL_CRYPTO
-#if defined __APPLE__
     load_ca_bundle (curl);
-#endif
 #endif
 
     gboolean is_https = (strncasecmp(url, "https", strlen("https")) == 0);
@@ -1033,9 +1051,7 @@ http_delete_common (CURL *curl, const char *url,
 
 
 #ifndef USE_GPL_CRYPTO
-#if defined __APPLE__
     load_ca_bundle (curl);
-#endif
 #endif
 
     gboolean is_https = (strncasecmp(url, "https", strlen("https")) == 0);
