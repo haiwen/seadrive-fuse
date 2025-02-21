@@ -941,6 +941,7 @@ static gboolean
 find_office_file_path (RepoTree *tree,
                        const char *parent_dir,
                        const char *lock_file_name,
+                       gboolean is_wps,
                        char **office_path)
 {
     GHashTable *dirents = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, g_free);
@@ -957,10 +958,20 @@ find_office_file_path (RepoTree *tree,
     g_hash_table_iter_init (&iter, dirents);
     while (g_hash_table_iter_next (&iter, &key, &value)) {
         dname = (char *)key;
-        if (strlen(dname) < 2 || strncmp(dname, "~$", 2) == 0) {
+        if (strlen(dname) < 2 || strncmp(dname, "~$", 2) == 0 || strncmp(dname, ".~", 2) == 0) {
             continue;
         }
-        dname_nohead = g_utf8_next_char(g_utf8_next_char(dname));
+        if (is_wps) {
+            dname_nohead = g_utf8_next_char(dname);
+            if (strcmp (dname_nohead, lock_file_name) == 0) {
+                *office_path = g_build_path("/", parent_dir, dname, NULL);
+                ret = TRUE;
+                break;
+            }
+            dname_nohead = g_utf8_next_char(dname_nohead);
+        } else {
+            dname_nohead = g_utf8_next_char(g_utf8_next_char(dname));
+        }
         if (strcmp (dname_nohead, lock_file_name) == 0) {
             *office_path = g_build_path("/", parent_dir, dname, NULL);
             ret = TRUE;
@@ -976,17 +987,30 @@ gboolean
 repo_tree_is_office_lock_file (RepoTree *tree, const char *path, char **office_path)
 {
     gboolean ret;
+    gboolean is_wps = FALSE;
 
-    if (!seaf->enable_auto_lock || !seaf->office_lock_file_regex)
+    if (!seaf->enable_auto_lock || !seaf->office_lock_file_regex ||
+        !seaf->libre_office_lock_file_regex || !seaf->wps_lock_file_regex)
         return FALSE;
 
-    if (!g_regex_match (seaf->office_lock_file_regex, path, 0, NULL))
+    if (g_regex_match (seaf->office_lock_file_regex, path, 0, NULL))
+        /* Replace ~$abc.docx with abc.docx */
+        *office_path = g_regex_replace (seaf->office_lock_file_regex,
+                                        path, -1, 0,
+                                        "\\1", 0, NULL);
+    else if (g_regex_match (seaf->libre_office_lock_file_regex, path, 0, NULL))
+        /* Replace .~lock.abc.docx# with abc.docx */
+        *office_path = g_regex_replace (seaf->libre_office_lock_file_regex,
+                                        path, -1, 0,
+                                        "\\1", 0, NULL);
+    else if (g_regex_match (seaf->wps_lock_file_regex, path, 0, NULL)) {
+        /* Replace .~abc.docx with abc.docx */
+        *office_path = g_regex_replace (seaf->wps_lock_file_regex,
+                                        path, -1, 0,
+                                        "\\1", 0, NULL);
+        is_wps = TRUE;
+    } else
         return FALSE;
-
-    /* Replace ~$abc.docx with abc.docx */
-    *office_path = g_regex_replace (seaf->office_lock_file_regex,
-                                    path, -1, 0,
-                                    "\\1", 0, NULL);
 
     /* When the filename is long, sometimes the first two characters
        in the filename will be directly replaced with ~$.
@@ -1008,7 +1032,7 @@ repo_tree_is_office_lock_file (RepoTree *tree, const char *path, char **office_p
     g_free (*office_path);
     *office_path = NULL;
 
-    ret = find_office_file_path (tree, parent_dir, lock_file_name, office_path);
+    ret = find_office_file_path (tree, parent_dir, lock_file_name, is_wps, office_path);
 
     g_free (lock_file_name);
     g_free (parent_dir);

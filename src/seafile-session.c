@@ -295,6 +295,8 @@ generate_client_id ()
 }
 
 #define OFFICE_LOCK_PATTERN "~\\$(.+)$"
+#define LIBRE_OFFICE_LOCK_PATTERN "\\.~lock\\.(.+)#$"
+#define WPS_LOCK_PATTERN "\\.~(.+)$"
 
 #define MAX_DELETED_FILES_NUM 500
 
@@ -359,6 +361,27 @@ seafile_session_prepare (SeafileSession *session)
                       error->message);
         g_regex_unref (session->office_lock_file_regex);
         session->office_lock_file_regex = NULL;
+        g_clear_error (&error);
+    }
+
+    session->libre_office_lock_file_regex = g_regex_new (LIBRE_OFFICE_LOCK_PATTERN,
+                                                         0, 0, &error);
+    if (error) {
+        seaf_warning ("Failed to init libre office lock file pattern: %s.\n",
+                      error->message);
+        g_regex_unref (session->libre_office_lock_file_regex);
+        session->libre_office_lock_file_regex = NULL;
+        g_clear_error (&error);
+    }
+
+    session->wps_lock_file_regex = g_regex_new (WPS_LOCK_PATTERN,
+                                                0, 0, &error);
+    if (error) {
+        seaf_warning ("Failed to init wps lock file pattern: %s.\n",
+                      error->message);
+        g_regex_unref (session->wps_lock_file_regex);
+        session->wps_lock_file_regex = NULL;
+        g_clear_error (&error);
     }
 
     session->delete_confirm_threshold = seafile_session_config_get_int(session, DELETE_CONFIRM_THRESHOLD, NULL);

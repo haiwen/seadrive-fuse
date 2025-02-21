@@ -89,6 +89,8 @@ struct _SeafileSession {
 
     gboolean             enable_auto_lock;
     GRegex              *office_lock_file_regex;
+    GRegex              *libre_office_lock_file_regex;
+    GRegex              *wps_lock_file_regex;
 
     gint64               last_check_repo_list_time;
     gint64               last_access_fs_time;
