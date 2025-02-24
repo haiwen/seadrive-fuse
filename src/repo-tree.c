@@ -963,7 +963,7 @@ find_office_file_path (RepoTree *tree,
         }
         if (is_wps) {
             dname_nohead = g_utf8_next_char(dname);
-            // WPS may replace the previous one or two characters of the filename with ".～" based on the length of the filename.
+            // WPS may replace the first one or two characters of the filename with ".～" based on the length of the filename.
             if (strcmp (dname_nohead, lock_file_name) == 0) {
                 *office_path = g_build_path("/", parent_dir, dname, NULL);
                 ret = TRUE;
