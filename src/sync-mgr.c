@@ -4112,7 +4112,6 @@ commit_repo (SeafRepo *repo, gboolean *changed)
 
     if (create_commit_from_changeset (repo, changeset, last_opid,
                                       account->username, changed) < 0) {
-        changeset_free (changeset);
         ret = -1;
         goto out;
     }
