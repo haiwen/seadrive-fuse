@@ -164,35 +164,25 @@ seaf_util_lseek (int fd, gint64 offset, int whence)
 gssize
 seaf_getxattr (const char *path, const char *name, void *value, size_t size)
 {
-#ifdef __linux__
     return getxattr (path, name, value, size);
-#endif
-
-#ifdef __APPLE__
-    return getxattr (path, name, value, size, 0, 0);
-#endif
 }
 
 int
 seaf_setxattr (const char *path, const char *name, const void *value, size_t size)
 {
-#ifdef __linux__
     return setxattr (path, name, value, size, 0);
-#endif
+}
 
-#ifdef __APPLE__
-    return setxattr (path, name, value, size, 0, 0);
-#endif
+int
+seaf_listxattr (const char *path, char *list, size_t size)
+{
+    return listxattr(path, list, size);;
 }
 
 int
 seaf_removexattr (const char *path, const char *name)
 {
-#ifdef __APPLE__
-    return removexattr (path, name, 0);
-#else
     return removexattr (path, name);
-#endif
 }
 
 int

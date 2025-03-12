@@ -2990,3 +2990,64 @@ file_cache_mgr_uncache_path (const char *repo_id, const char *path)
     return 0;
 }
 #endif
+
+int
+file_cache_mgr_setxattr (FileCacheMgr *mgr,
+                         const char *repo_id,
+                         const char *path,
+                         const char *name,
+                         const char *value,
+                         size_t size)
+{
+    char *fullpath = g_build_filename (mgr->priv->base_path, repo_id, path, NULL);
+
+    int ret = seaf_getxattr (fullpath, name, value, size);
+
+    g_free (fullpath);
+    return ret;
+}
+
+int
+file_cache_mgr_getxattr (FileCacheMgr *mgr,
+                         const char *repo_id,
+                         const char *path,
+                         const char *name,
+                         char *value,
+                         size_t size)
+{
+    char *fullpath = g_build_filename (mgr->priv->base_path, repo_id, path, NULL);
+
+    int ret = seaf_getxattr (fullpath, name, value, size);
+
+    g_free (fullpath);
+    return ret;
+}
+
+int
+file_cache_mgr_listxattr (FileCacheMgr *mgr,
+                          const char *repo_id,
+                          const char *path,
+                          char *list,
+                          size_t size)
+{
+    char *fullpath = g_build_filename (mgr->priv->base_path, repo_id, path, NULL);
+
+    int ret = seaf_listxattr (fullpath, name, list, size);
+
+    g_free (fullpath);
+    return ret;
+}
+
+int
+file_cache_mgr_removexattr (FileCacheMgr *mgr,
+                            const char *repo_id,
+                            const char *path,
+                            const  char *name)
+{
+    char *fullpath = g_build_filename (mgr->priv->base_path, repo_id, path, NULL);
+
+    int ret = seaf_removexattr (fullpath, name);
+
+    g_free (fullpath);
+    return ret;
+}
