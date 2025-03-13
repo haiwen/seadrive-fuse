@@ -3001,7 +3001,7 @@ file_cache_mgr_setxattr (FileCacheMgr *mgr,
 {
     char *fullpath = g_build_filename (mgr->priv->base_path, repo_id, path, NULL);
 
-    int ret = seaf_getxattr (fullpath, name, value, size);
+    int ret = seaf_setxattr (fullpath, name, value, size);
 
     g_free (fullpath);
     return ret;
@@ -3032,7 +3032,7 @@ file_cache_mgr_listxattr (FileCacheMgr *mgr,
 {
     char *fullpath = g_build_filename (mgr->priv->base_path, repo_id, path, NULL);
 
-    int ret = seaf_listxattr (fullpath, name, list, size);
+    int ret = seaf_listxattr (fullpath, list, size);
 
     g_free (fullpath);
     return ret;

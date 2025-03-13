@@ -1838,12 +1838,12 @@ seadrive_fuse_setxattr (const char *path, const char *name, const char *value,
 
     if (!file_cache_mgr_is_file_cached (seaf->file_cache_mgr, comps.repo_info->id, comps.repo_path)) {
         ret = -ENOENT;
-        goto out
+        goto out;
     }
 
     if (file_cache_mgr_setxattr (seaf->file_cache_mgr, comps.repo_info->id, comps.repo_path, name, value, size) < 0) {
         ret = -ENOENT;
-        goto out
+        goto out;
     }
 
 out:
@@ -1861,10 +1861,13 @@ seadrive_fuse_getxattr (const char *path, const char *name, char *value, size_t 
 
     memset (&comps, 0, sizeof(comps));
 
+    seaf_message ("444\n");
     if (parse_fuse_path (path, &comps) < 0) {
+        seaf_message ("555\n");
         return -ENOENT;
     }
 
+    seaf_message ("333\n");
     if (!comps.account_info) {
         ret = -EINVAL;
         goto out;
@@ -1884,16 +1887,22 @@ seadrive_fuse_getxattr (const char *path, const char *name, char *value, size_t 
         goto out;
     }
 
+    seaf_message ("111\n");
     if (!file_cache_mgr_is_file_cached (seaf->file_cache_mgr, comps.repo_info->id, comps.repo_path)) {
         ret = -ENOENT;
-        goto out
+        goto out;
     }
 
+    seaf_message ("222\n");
     if (file_cache_mgr_getxattr (seaf->file_cache_mgr, comps.repo_info->id, comps.repo_path, name, value, size) < 0) {
         ret = -ENOENT;
-        goto out
+        goto out;
     }
 
+    seaf_message ("get %s xattr: name %s, value %s, size: %d, value: %p: %p\n", path, name, value, size, value);
+
+out:
+    path_comps_free (&comps);
     return ret;
 }
 
@@ -1901,6 +1910,7 @@ int
 seadrive_fuse_listxattr (const char *path, char *list, size_t size)
 {
     FusePathComps comps;
+    int ret = 0;
 
     seaf_debug ("listxattr: %s\n", path);
 
@@ -1931,21 +1941,27 @@ seadrive_fuse_listxattr (const char *path, char *list, size_t size)
 
     if (!file_cache_mgr_is_file_cached (seaf->file_cache_mgr, comps.repo_info->id, comps.repo_path)) {
         ret = -ENOENT;
-        goto out
+        goto out;
     }
 
     if (file_cache_mgr_listxattr (seaf->file_cache_mgr, comps.repo_info->id, comps.repo_path, list, size) < 0) {
         ret = -ENOENT;
-        goto out
+        goto out;
     }
 
-    return 0;
+    seaf_message ("list %s xattr: %s\n", path, list);
+
+out:
+    path_comps_free (&comps);
+    return ret;
 }
 
 int
 seadrive_fuse_removexattr (const char *path, const char *name)
 {
     FusePathComps comps;
+    int ret = 0;
+
     seaf_debug ("removexattr: %s %s\n", path, name);
 
     memset (&comps, 0, sizeof(comps));
@@ -1975,15 +1991,17 @@ seadrive_fuse_removexattr (const char *path, const char *name)
 
     if (!file_cache_mgr_is_file_cached (seaf->file_cache_mgr, comps.repo_info->id, comps.repo_path)) {
         ret = -ENOENT;
-        goto out
+        goto out;
     }
 
     if (file_cache_mgr_removexattr (seaf->file_cache_mgr, comps.repo_info->id, comps.repo_path, name) < 0) {
         ret = -ENOENT;
-        goto out
+        goto out;
     }
 
-    return 0;
+out:
+    path_comps_free (&comps);
+    return ret;
 }
 #endif
 
