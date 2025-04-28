@@ -4334,9 +4334,6 @@ seaf_sync_manager_update_active_path (SeafSyncManager *mgr,
                                       int mode,
                                       SyncStatus status)
 {
-    // Don't need to update active path on Linux.
-    return;
-    /*
     ActivePathsInfo *info;
     SeafRepo *repo = NULL;
 
@@ -4373,7 +4370,6 @@ seaf_sync_manager_update_active_path (SeafSyncManager *mgr,
     pthread_mutex_unlock (&mgr->priv->paths_lock);
 
     seaf_repo_unref (repo);
-    */
 }
 
 void
@@ -4381,9 +4377,6 @@ seaf_sync_manager_delete_active_path (SeafSyncManager *mgr,
                                       const char *repo_id,
                                       const char *path)
 {
-    // Don't need to update active path on Linux.
-    return;
-    /*
     ActivePathsInfo *info;
 
     if (!repo_id || !path) {
@@ -4403,7 +4396,6 @@ seaf_sync_manager_delete_active_path (SeafSyncManager *mgr,
     sync_status_tree_del (info->synced_tree, path);
 
     pthread_mutex_unlock (&mgr->priv->paths_lock);
-    */
 }
 
 static char *path_status_tbl[] = {
