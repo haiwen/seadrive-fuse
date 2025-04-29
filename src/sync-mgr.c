@@ -4497,7 +4497,7 @@ seaf_sync_manager_get_path_sync_status (SeafSyncManager *mgr,
 
 check_special_states:
     if (ret == SYNC_STATUS_SYNCED || ret == SYNC_STATUS_PARTIAL_SYNCED ||
-        ret == SYNC_STATUS_CLOUD)
+        ret == SYNC_STATUS_CLOUD || ret == SYNC_STATUS_NONE)
     {
         if (!seaf_repo_manager_is_path_writable(seaf->repo_mgr, repo_id, path))
             ret = SYNC_STATUS_READONLY;
