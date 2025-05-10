@@ -240,4 +240,40 @@ file_cache_mgr_cancel_download (FileCacheMgr *mgr,
                                 const char *user,
                                 const char *full_file_path, GError **error);
 
+int
+file_cache_mgr_setxattr (FileCacheMgr *mgr,
+                         const char *repo_id,
+                         const char *path,
+                         const char *name,
+                         const char *value,
+                         size_t size);
+
+int
+file_cache_mgr_getxattr (FileCacheMgr *mgr,
+                         const char *repo_id,
+                         const char *path,
+                         const char *name,
+                         char *value,
+                         size_t size);
+
+int
+file_cache_mgr_listxattr (FileCacheMgr *mgr,
+                          const char *repo_id,
+                          const char *path,
+                          char *list,
+                          size_t size);
+
+int
+file_cache_mgr_listxattr (FileCacheMgr *mgr,
+                          const char *repo_id,
+                          const char *path,
+                          char *list,
+                          size_t size);
+
+int
+file_cache_mgr_removexattr (FileCacheMgr *mgr,
+                            const char *repo_id,
+                            const char *path,
+                            const  char *name);
+
 #endif
