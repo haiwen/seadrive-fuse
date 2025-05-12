@@ -98,10 +98,12 @@ static struct fuse_operations seadrive_fuse_ops = {
     .chmod = seadrive_fuse_chmod,
     .utimens = seadrive_fuse_utimens,
     .symlink = seadrive_fuse_symlink,
-    /* .setxattr = seadrive_fuse_setxattr, */
-    /* .getxattr = seadrive_fuse_getxattr, */
-    /* .listxattr = seadrive_fuse_listxattr, */
-    /* .removexattr = seadrive_fuse_removexattr */
+#ifdef ENABLE_XATTR
+    .setxattr = seadrive_fuse_setxattr,
+    .getxattr = seadrive_fuse_getxattr,
+    .listxattr = seadrive_fuse_listxattr,
+    .removexattr = seadrive_fuse_removexattr
+#endif
 };
 
 static void usage ()
