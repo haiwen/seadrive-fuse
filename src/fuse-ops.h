@@ -43,20 +43,10 @@ int seadrive_fuse_symlink (const char *from, const char *to);
 
 int seadrive_fuse_link (const char *from, const char *to);
 
-#ifdef __APPLE__
-int seadrive_fuse_setxattr (const char *path, const char *name, const char *value,
-                        size_t size, int flags, uint32_t position);
-#else
 int seadrive_fuse_setxattr (const char *path, const char *name, const char *value,
                         size_t size, int flags);
-#endif
 
-#ifdef __APPLE__
-int seadrive_fuse_getxattr (const char *path, const char *name, char *value, size_t size,
-                       uint32_t position);
-#else
 int seadrive_fuse_getxattr (const char *path, const char *name, char *value, size_t size);
-#endif
 
 int seadrive_fuse_listxattr (const char *path, char *list, size_t size);
 
