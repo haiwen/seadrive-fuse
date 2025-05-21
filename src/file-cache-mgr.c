@@ -485,6 +485,34 @@ calculate_block_offset (Seafile *file, gint64 *block_map, CachedFileHandle *hand
     *file_offset = prev_offset;
 }
 
+static char *
+get_mount_path (SeafRepo *repo, const char *file_path)
+{
+    char *mount_path = NULL;
+    GList *accounts = NULL;
+    accounts = seaf_repo_manager_get_account_list (seaf->repo_mgr);
+    if (!accounts) {
+        goto out;
+    }
+
+    if (g_list_length (accounts) <= 1) {
+        mount_path = g_build_filename (seaf->mount_point, repo->repo_uname, file_path, NULL);
+    } else {
+        SeafAccount *account = seaf_repo_manager_get_account (seaf->repo_mgr,
+                                                              repo->server,
+                                                              repo->user);
+        if (account) {
+            mount_path = g_build_filename (seaf->mount_point, account->name, repo->repo_uname, file_path, NULL);
+
+        }
+        seaf_account_free (account);
+    }
+out:
+    if (accounts)
+        g_list_free_full (accounts, (GDestroyNotify)seaf_account_free);
+    return mount_path;
+}
+
 #define CACHE_BLOCK_MAP_THRESHOLD 3000000 /* 3MB */
 
 static void
@@ -501,6 +529,7 @@ fetch_file_worker (gpointer data, gpointer user_data)
     char *repo_id;
     char *file_path;
     char *ondisk_path = NULL;
+    char *mount_path = NULL;
     int http_status = 200;
     gint64 *block_map = NULL;
     int n_blocks = 0;
@@ -521,6 +550,9 @@ fetch_file_worker (gpointer data, gpointer user_data)
         seaf_warning ("Failed to get repo %.8s.\n", repo_id);
         goto out;
     }
+
+    // By setting extended attributes on files in the mounted path, Nautilus can be prompted to refresh their status.
+    mount_path = get_mount_path (repo, file_path);
 
     have_invisible = seaf_repo_manager_include_invisible_perm (seaf->repo_mgr, repo->id);
 
@@ -612,6 +644,9 @@ fetch_file_worker (gpointer data, gpointer user_data)
         seaf_util_lseek (file_handle->fd, file_offset, SEEK_SET);
     }
 
+    if (mount_path)
+        seaf_setxattr (mount_path, "user.seafile-status", "syncing", 8);
+
     if (have_invisible && !file_handle->crypt) {
         if (get_file_from_server (server_info, repo, file_path, block_offset, file_handle) < 0) {
             goto out;
@@ -686,6 +721,9 @@ fetch_file_worker (gpointer data, gpointer user_data)
     free_cached_file_handle (file_handle);
     file_handle = NULL;
 
+    if (mount_path)
+        seaf_setxattr (mount_path, "user.seafile-status", "cached", 7);
+
     if (mark_file_cached (ondisk_path, &st) == 0) {
         seaf_sync_manager_update_active_path (seaf->sync_mgr, repo_id,
                                               file_path, st.mode, SYNC_STATUS_SYNCED);
@@ -707,6 +745,7 @@ out:
 
     g_strfreev (key_comps);
     g_free (ondisk_path);
+    g_free (mount_path);
     if (server_info)
         seaf_sync_manager_free_server_info (server_info);
     if (repo)

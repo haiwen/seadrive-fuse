@@ -1465,12 +1465,6 @@ seadrive_fuse_read(const char *path, char *buf, size_t size,
                                        buf, size, offset);
     if (ret < 0) {
         seaf_warning ("Failed to read %s/%s: %s.\n", repo_id, file_path, strerror(-ret));
-    } else {
-#ifdef ENABLE_XATTR
-        char *fullpath = g_build_filename (seaf->mount_point, path, NULL);
-        seaf_setxattr (fullpath, "user.seafile-status", "reading", 8);
-        g_free (fullpath);
-#endif
     }
 
     g_free (repo_id);
@@ -1842,11 +1836,6 @@ seadrive_fuse_setxattr (const char *path, const char *name, const char *value,
         goto out;
     }
 
-    if (!file_cache_mgr_is_file_cached (seaf->file_cache_mgr, comps.repo_info->id, comps.repo_path)) {
-        ret = -ENOENT;
-        goto out;
-    }
-
     if (file_cache_mgr_setxattr (seaf->file_cache_mgr, comps.repo_info->id, comps.repo_path, name, value, size) < 0) {
         ret = -ENOENT;
         goto out;
@@ -1887,11 +1876,6 @@ seadrive_fuse_getxattr (const char *path, const char *name, char *value, size_t 
     } else if (!comps.repo_path) {
         /* Repo directory */
         ret = -EINVAL;
-        goto out;
-    }
-
-    if (!file_cache_mgr_is_file_cached (seaf->file_cache_mgr, comps.repo_info->id, comps.repo_path)) {
-        ret = -ENOENT;
         goto out;
     }
 
