@@ -4387,3 +4387,30 @@ seaf_repo_manager_get_account_by_repo_id (SeafRepoManager *mgr, const char *repo
     return object;
 }
 
+char *
+seaf_repo_manager_get_mount_path (SeafRepoManager *mgr, SeafRepo *repo, const char *file_path)
+{
+    char *mount_path = NULL;
+    GList *accounts = NULL;
+    accounts = seaf_repo_manager_get_account_list (mgr);
+    if (!accounts) {
+        goto out;
+    }
+
+    if (g_list_length (accounts) <= 1) {
+        mount_path = g_build_filename (seaf->mount_point, repo->repo_uname, file_path, NULL);
+    } else {
+        SeafAccount *account = seaf_repo_manager_get_account (mgr,
+                                                              repo->server,
+                                                              repo->user);
+        if (account) {
+            mount_path = g_build_filename (seaf->mount_point, account->name, repo->repo_uname, file_path, NULL);
+
+        }
+        seaf_account_free (account);
+    }
+out:
+    if (accounts)
+        g_list_free_full (accounts, (GDestroyNotify)seaf_account_free);
+    return mount_path;
+}

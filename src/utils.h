@@ -68,6 +68,9 @@ int
 seaf_setxattr (const char *path, const char *name, const void *value, size_t size);
 
 int
+seaf_listxattr (const char *path, char *list, size_t size);
+
+int
 seaf_removexattr (const char *path, const char *name);
 
 int

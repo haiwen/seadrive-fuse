@@ -550,4 +550,7 @@ seaf_repo_manager_get_first_repo_token_from_account_repos (SeafRepoManager *mgr,
 json_t *
 seaf_repo_manager_get_account_by_repo_id (SeafRepoManager *mgr, const char *repo_id);
 
+char *
+seaf_repo_manager_get_mount_path (SeafRepoManager *mgr, SeafRepo *repo, const char *file_path);
+
 #endif

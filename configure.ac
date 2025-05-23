@@ -231,6 +231,13 @@ if test "${compile_ws}" = "yes"; then
    AC_SUBST(WS_LIBS)
 fi
 
+AC_ARG_ENABLE(xattr, AC_HELP_STRING([--enable-xattr], [enable build xattr]),
+  [enable_xattr=$enableval],[enable_xattr="yes"])
+AM_CONDITIONAL([ENABLE_XATTR], [test "${enable_xattr}" = "yes"])
+if test "${enable_xattr}" = "yes"; then
+   AC_DEFINE(ENABLE_XATTR, 1, [enable fuse xattr])
+fi
+
 BPWRAPPER_REQUIRED=0.1
 AC_ARG_ENABLE(breakpad, AC_HELP_STRING([--enable-breakpad], [build google breadpad support]),
                                [compile_breakpad=$enableval],[compile_breakpad="no"])

@@ -4334,11 +4334,9 @@ seaf_sync_manager_update_active_path (SeafSyncManager *mgr,
                                       int mode,
                                       SyncStatus status)
 {
-    // Don't need to update active path on Linux.
-    return;
-    /*
     ActivePathsInfo *info;
     SeafRepo *repo = NULL;
+    char *mount_path = NULL;
 
     if (!repo_id || !path) {
         seaf_warning ("BUG: empty repo_id or path.\n");
@@ -4353,6 +4351,9 @@ seaf_sync_manager_update_active_path (SeafSyncManager *mgr,
     repo = seaf_repo_manager_get_repo (seaf->repo_mgr, repo_id);
     if (!repo)
         return;
+
+    // By setting extended attributes on files in the mounted path, Nautilus can be prompted to refresh their status.
+    mount_path = seaf_repo_manager_get_mount_path (seaf->repo_mgr, repo, path);
 
     pthread_mutex_lock (&mgr->priv->paths_lock);
 
@@ -4372,8 +4373,15 @@ seaf_sync_manager_update_active_path (SeafSyncManager *mgr,
 
     pthread_mutex_unlock (&mgr->priv->paths_lock);
 
+    if (mount_path) {
+        if (status == SYNC_STATUS_SYNCING)
+            seaf_setxattr (mount_path, "user.seafile-status", "syncing", 8);
+        else
+            seaf_setxattr (mount_path, "user.seafile-status", "cached", 7);
+    }
+
     seaf_repo_unref (repo);
-    */
+    g_free (mount_path);
 }
 
 void
@@ -4381,9 +4389,6 @@ seaf_sync_manager_delete_active_path (SeafSyncManager *mgr,
                                       const char *repo_id,
                                       const char *path)
 {
-    // Don't need to update active path on Linux.
-    return;
-    /*
     ActivePathsInfo *info;
 
     if (!repo_id || !path) {
@@ -4403,7 +4408,6 @@ seaf_sync_manager_delete_active_path (SeafSyncManager *mgr,
     sync_status_tree_del (info->synced_tree, path);
 
     pthread_mutex_unlock (&mgr->priv->paths_lock);
-    */
 }
 
 static char *path_status_tbl[] = {
@@ -4505,7 +4509,7 @@ seaf_sync_manager_get_path_sync_status (SeafSyncManager *mgr,
 
 check_special_states:
     if (ret == SYNC_STATUS_SYNCED || ret == SYNC_STATUS_PARTIAL_SYNCED ||
-        ret == SYNC_STATUS_CLOUD)
+        ret == SYNC_STATUS_CLOUD || ret == SYNC_STATUS_NONE)
     {
         if (!seaf_repo_manager_is_path_writable(seaf->repo_mgr, repo_id, path))
             ret = SYNC_STATUS_READONLY;

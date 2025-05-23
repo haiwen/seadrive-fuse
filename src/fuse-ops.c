@@ -1801,11 +1801,13 @@ seadrive_fuse_symlink (const char *from, const char *to)
     return 0;
 }
 
+#ifdef ENABLE_XATTR
 int
 seadrive_fuse_setxattr (const char *path, const char *name, const char *value,
                         size_t size, int flags)
 {
     FusePathComps comps;
+    int ret = 0;
 
     seaf_debug ("setxattr: %s %s\n", path, name);
 
@@ -1815,19 +1817,40 @@ seadrive_fuse_setxattr (const char *path, const char *name, const char *value,
         return -ENOENT;
     }
 
-    return 0;
+    if (!comps.account_info) {
+        ret = -EINVAL;
+        goto out;
+    } else if (!comps.repo_type) {
+        ret = -EINVAL;
+        goto out;
+    } else if (comps.root_path) {
+        ret = -EINVAL;
+        goto out;
+    } else if (!comps.repo_info && !comps.repo_path) {
+        /* Root directory */
+        ret = -EINVAL;
+        goto out;
+    } else if (!comps.repo_path) {
+        /* Repo directory */
+        ret = -EINVAL;
+        goto out;
+    }
+
+    if (file_cache_mgr_setxattr (seaf->file_cache_mgr, comps.repo_info->id, comps.repo_path, name, value, size) < 0) {
+        ret = -ENOENT;
+        goto out;
+    }
+
+out:
+    path_comps_free (&comps);
+    return ret;
 }
 
-#ifdef __APPLE__
-int
-seadrive_fuse_getxattr (const char *path, const char *name, char *value, size_t size,
-                        uint32_t position)
-#else
 int
 seadrive_fuse_getxattr (const char *path, const char *name, char *value, size_t size)
-#endif
 {
     FusePathComps comps;
+    int ret = 0;
 
     seaf_debug ("getxattr: %s %s\n", path, name);
 
@@ -1837,22 +1860,133 @@ seadrive_fuse_getxattr (const char *path, const char *name, char *value, size_t 
         return -ENOENT;
     }
 
-    return -ENODATA;
+    if (!comps.account_info) {
+        ret = -EINVAL;
+        goto out;
+    } else if (!comps.repo_type) {
+        ret = -EINVAL;
+        goto out;
+    } else if (comps.root_path) {
+        ret = -EINVAL;
+        goto out;
+    } else if (!comps.repo_info && !comps.repo_path) {
+        /* Root directory */
+        ret = -EINVAL;
+        goto out;
+    } else if (!comps.repo_path) {
+        /* Repo directory */
+        ret = -EINVAL;
+        goto out;
+    }
+
+    ret = file_cache_mgr_getxattr (seaf->file_cache_mgr, comps.repo_info->id, comps.repo_path, name, value, size);
+    if (ret < 0) {
+        ret = -ENOENT;
+        goto out;
+    }
+
+out:
+    path_comps_free (&comps);
+    return ret;
 }
 
 int
 seadrive_fuse_listxattr (const char *path, char *list, size_t size)
 {
+    FusePathComps comps;
+    int ret = 0;
+
     seaf_debug ("listxattr: %s\n", path);
-    return 0;
+
+    memset (&comps, 0, sizeof(comps));
+
+    if (parse_fuse_path (path, &comps) < 0) {
+        return -ENOENT;
+    }
+
+    if (!comps.account_info) {
+        ret = -EINVAL;
+        goto out;
+    } else if (!comps.repo_type) {
+        ret = -EINVAL;
+        goto out;
+    } else if (comps.root_path) {
+        ret = -EINVAL;
+        goto out;
+    } else if (!comps.repo_info && !comps.repo_path) {
+        /* Root directory */
+        ret = -EINVAL;
+        goto out;
+    } else if (!comps.repo_path) {
+        /* Repo directory */
+        ret = -EINVAL;
+        goto out;
+    }
+
+    if (!file_cache_mgr_is_file_cached (seaf->file_cache_mgr, comps.repo_info->id, comps.repo_path)) {
+        ret = -ENOENT;
+        goto out;
+    }
+
+    ret = file_cache_mgr_listxattr (seaf->file_cache_mgr, comps.repo_info->id, comps.repo_path, list, size);
+    if (ret < 0) {
+        ret = -ENOENT;
+        goto out;
+    }
+
+out:
+    path_comps_free (&comps);
+    return ret;
 }
 
 int
 seadrive_fuse_removexattr (const char *path, const char *name)
 {
+    FusePathComps comps;
+    int ret = 0;
+
     seaf_debug ("removexattr: %s %s\n", path, name);
-    return 0;
+
+    memset (&comps, 0, sizeof(comps));
+
+    if (parse_fuse_path (path, &comps) < 0) {
+        return -ENOENT;
+    }
+
+    if (!comps.account_info) {
+        ret = -EINVAL;
+        goto out;
+    } else if (!comps.repo_type) {
+        ret = -EINVAL;
+        goto out;
+    } else if (comps.root_path) {
+        ret = -EINVAL;
+        goto out;
+    } else if (!comps.repo_info && !comps.repo_path) {
+        /* Root directory */
+        ret = -EINVAL;
+        goto out;
+    } else if (!comps.repo_path) {
+        /* Repo directory */
+        ret = -EINVAL;
+        goto out;
+    }
+
+    if (!file_cache_mgr_is_file_cached (seaf->file_cache_mgr, comps.repo_info->id, comps.repo_path)) {
+        ret = -ENOENT;
+        goto out;
+    }
+
+    if (file_cache_mgr_removexattr (seaf->file_cache_mgr, comps.repo_info->id, comps.repo_path, name) < 0) {
+        ret = -ENOENT;
+        goto out;
+    }
+
+out:
+    path_comps_free (&comps);
+    return ret;
 }
+#endif
 
 
 #endif // __linux__
