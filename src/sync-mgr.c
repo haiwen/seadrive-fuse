@@ -4327,6 +4327,34 @@ active_paths_info_free (ActivePathsInfo *info)
     g_free (info);
 }
 
+static char *
+get_mount_path (SeafRepo *repo, const char *file_path)
+{
+    char *mount_path = NULL;
+    GList *accounts = NULL;
+    accounts = seaf_repo_manager_get_account_list (seaf->repo_mgr);
+    if (!accounts) {
+        goto out;
+    }
+
+    if (g_list_length (accounts) <= 1) {
+        mount_path = g_build_filename (seaf->mount_point, repo->repo_uname, file_path, NULL);
+    } else {
+        SeafAccount *account = seaf_repo_manager_get_account (seaf->repo_mgr,
+                                                              repo->server,
+                                                              repo->user);
+        if (account) {
+            mount_path = g_build_filename (seaf->mount_point, account->name, repo->repo_uname, file_path, NULL);
+
+        }
+        seaf_account_free (account);
+    }
+out:
+    if (accounts)
+        g_list_free_full (accounts, (GDestroyNotify)seaf_account_free);
+    return mount_path;
+}
+
 void
 seaf_sync_manager_update_active_path (SeafSyncManager *mgr,
                                       const char *repo_id,
@@ -4336,6 +4364,7 @@ seaf_sync_manager_update_active_path (SeafSyncManager *mgr,
 {
     ActivePathsInfo *info;
     SeafRepo *repo = NULL;
+    char *mount_path = NULL;
 
     if (!repo_id || !path) {
         seaf_warning ("BUG: empty repo_id or path.\n");
@@ -4350,6 +4379,9 @@ seaf_sync_manager_update_active_path (SeafSyncManager *mgr,
     repo = seaf_repo_manager_get_repo (seaf->repo_mgr, repo_id);
     if (!repo)
         return;
+
+    // By setting extended attributes on files in the mounted path, Nautilus can be prompted to refresh their status.
+    mount_path = get_mount_path (repo, path);
 
     pthread_mutex_lock (&mgr->priv->paths_lock);
 
@@ -4369,7 +4401,15 @@ seaf_sync_manager_update_active_path (SeafSyncManager *mgr,
 
     pthread_mutex_unlock (&mgr->priv->paths_lock);
 
+    if (mount_path) {
+        if (status == SYNC_STATUS_SYNCING)
+            seaf_setxattr (mount_path, "user.seafile-status", "syncing", 8);
+        else
+            seaf_setxattr (mount_path, "user.seafile-status", "cached", 7);
+    }
+
     seaf_repo_unref (repo);
+    g_free (mount_path);
 }
 
 void
