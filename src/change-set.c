@@ -235,18 +235,18 @@ changeset_free (ChangeSet *changeset)
     g_free (changeset);
 }
 
-static void
+static gboolean
 update_file (ChangeSetDirent *dent,
              unsigned char *sha1,
              SeafStat *st,
              const char *modifier)
 {
     if (!st || !S_ISREG(st->st_mode))
-        return;
+        return FALSE;
     if (dent->mode == create_mode (st->st_mode) &&
         dent->mtime == st->st_mtime &&
         dent->size == st->st_size)
-        return;
+        return FALSE;
     dent->mode = create_mode(st->st_mode);
     dent->mtime = (gint64)st->st_mtime;
     dent->size = (gint64)st->st_size;
@@ -255,6 +255,8 @@ update_file (ChangeSetDirent *dent,
 
     g_free (dent->modifier);
     dent->modifier = g_strdup(modifier);
+
+    return TRUE;
 }
 
 static void
@@ -311,6 +313,8 @@ add_to_tree (ChangeSet *changeset,
     ChangeSetDir *dir;
     ChangeSetDirent *dent;
     SeafDir *seaf_dir;
+    GList *parent_dents = NULL;
+    gboolean changed = FLASE;
 
     parts = g_strsplit (path, "/", 0);
     n = g_strv_length(parts);
@@ -339,21 +343,34 @@ add_to_tree (ChangeSet *changeset,
                     seaf_dir_free (seaf_dir);
                 }
                 dir = dent->subdir;
+                parent_dents = g_list_prepend (parent_dents, dent);
             } else if (S_ISREG(dent->mode)) {
                 if (i == (n-1)) {
                     /* File exists, update it. */
-                    update_file (dent, sha1, st, modifier);
+                    changed = update_file (dent, sha1, st, modifier);
                     break;
                 }
             }
         } else {
             if (i == (n-1)) {
                 create_new_dent (dir, dname, sha1, st, modifier, new_dent);
+                changed = TRUE;
             } else {
                 dir = create_intermediate_dir (dir, dname);
             }
         }
     }
+
+    if (changed) {
+        GList *ptr;
+        time_t now  = time(NULL);
+        for (ptr = parent_dents; ptr; ptr = ptr->next) {
+            dent = ptr->data;
+            // update parent dir mtime when add or modify or rename files locally.
+            dent->mtime = now;
+        }
+    }
+    g_list_free (parent_dents);
 
     g_strfreev (parts);
 }
@@ -370,6 +387,7 @@ delete_from_tree (ChangeSet *changeset,
     ChangeSetDir *dir;
     ChangeSetDirent *dent, *ret = NULL;
     SeafDir *seaf_dir;
+    GList *parent_dents = NULL;
 
     *parent_empty = FALSE;
 
@@ -407,6 +425,7 @@ delete_from_tree (ChangeSet *changeset,
                 seaf_dir_free (seaf_dir);
             }
             dir = dent->subdir;
+            parent_dents = g_list_prepend (parent_dents, dent);
         } else if (S_ISREG(dent->mode)) {
             if (i == (n-1)) {
                 /* Remove from hash table without freeing dent. */
@@ -418,6 +437,17 @@ delete_from_tree (ChangeSet *changeset,
             }
         }
     }
+
+    if (ret) {
+        GList *ptr;
+        time_t now  = time(NULL);
+        for (ptr = parent_dents; ptr; ptr = ptr->next) {
+            dent = ptr->data;
+            // update parent dir mtime when delete dirs or files locally.
+            dent->mtime = now;
+        }
+    }
+    g_list_free (parent_dents);
 
     g_strfreev (parts);
     return ret;
