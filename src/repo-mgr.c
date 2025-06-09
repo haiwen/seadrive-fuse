@@ -2450,6 +2450,18 @@ open_db (SeafRepoManager *manager, const char *seaf_dir)
         "PRIMARY KEY (repo_id, path));";
     sqlite_query_exec (db, sql);
 
+    sql = "CREATE TABLE IF NOT EXISTS RepoOldHead ("
+          "repo_id TEXT, head TEXT);";
+    sqlite_query_exec (db, sql);
+
+    sql = "CREATE TABLE IF NOT EXISTS FileSyncError ("
+        "id INTEGER PRIMARY KEY AUTOINCREMENT, repo_id TEXT, repo_name TEXT, "
+        "path TEXT, err_id INTEGER, timestamp INTEGER);";
+    sqlite_query_exec (db, sql);
+
+    sql = "CREATE INDEX IF NOT EXISTS FileSyncErrorIndex ON FileSyncError (repo_id, path)";
+    sqlite_query_exec (db, sql);
+
     return db;
 }
 
@@ -4413,4 +4425,109 @@ out:
     if (accounts)
         g_list_free_full (accounts, (GDestroyNotify)seaf_account_free);
     return mount_path;
+}
+
+// Sync error related. These functions should belong to the sync-mgr module.
+// But since we have to store the errors in repo database, we have to put the code here.
+int
+seaf_repo_manager_record_sync_error (SeafRepoManager *mgr,
+                                     const char *repo_id,
+                                     const char *repo_name,
+                                     const char *path,
+                                     int error_id)
+{
+    char *sql;
+    int ret;
+
+    // record empty string to database.
+    if (!repo_id)
+        repo_id = "";
+    if (!repo_name)
+        repo_name = "";
+    if (!path)
+        path = "";
+
+    pthread_mutex_lock (&mgr->priv->db_lock);
+
+    if (path != NULL)
+        sql = sqlite3_mprintf ("DELETE FROM FileSyncError WHERE repo_id='%q' AND path='%q'",
+                               repo_id, path);
+    else
+        sql = sqlite3_mprintf ("DELETE FROM FileSyncError WHERE repo_id='%q' AND path IS NULL",
+                               repo_id);
+    ret = sqlite_query_exec (mgr->priv->db, sql);
+    sqlite3_free (sql);
+    if (ret < 0)
+        goto out;
+
+    /* REPLACE INTO will update the primary key id automatically.
+     * So new errors are always on top.
+     */
+    if (path != NULL)
+        sql = sqlite3_mprintf ("INSERT INTO FileSyncError "
+                               "(repo_id, repo_name, path, err_id, timestamp) "
+                               "VALUES ('%q', '%q', '%q', %d, %lld)",
+                               repo_id, repo_name, path, error_id, (gint64)time(NULL));
+    else
+        sql = sqlite3_mprintf ("INSERT INTO FileSyncError "
+                               "(repo_id, repo_name, err_id, timestamp) "
+                               "VALUES ('%q', '%q', %d, %lld)",
+                               repo_id, repo_name, error_id, (gint64)time(NULL));
+        
+    ret = sqlite_query_exec (mgr->priv->db, sql);
+    sqlite3_free (sql);
+
+out:
+    pthread_mutex_unlock (&mgr->priv->db_lock);
+    return ret;
+}
+
+static gboolean
+collect_file_sync_errors (sqlite3_stmt *stmt, void *data)
+{
+    json_t *array = data;
+    const char *repo_id, *repo_name, *path;
+    int id, err_id;
+    gint64 timestamp;
+    json_t *obj;
+
+    id = sqlite3_column_int (stmt, 0);
+    repo_id = (const char *)sqlite3_column_text (stmt, 1);
+    repo_name = (const char *)sqlite3_column_text (stmt, 2);
+    path = (const char *)sqlite3_column_text (stmt, 3);
+    err_id = sqlite3_column_int (stmt, 4);
+    timestamp = sqlite3_column_int64 (stmt, 5);
+
+    obj = json_object ();
+    if (repo_id)
+        json_object_set_new (obj, "repo_id", json_string(repo_id));
+    if (repo_name)
+        json_object_set_new (obj, "repo_name", json_string(repo_name));
+    if (path)
+        json_object_set_new (obj, "path", json_string(path));
+    json_object_set_new (obj, "err_id", json_integer(err_id));
+    json_object_set_new (obj, "timestamp", json_integer(timestamp));
+    json_array_append_new (array, obj);
+
+    return TRUE;
+}
+
+json_t *
+seaf_repo_manager_list_sync_errors (SeafRepoManager *mgr, int offset, int limit)
+{
+    json_t *array;
+    char *sql;
+
+    array = json_array ();
+    sql = sqlite3_mprintf ("SELECT id, repo_id, repo_name, path, err_id, timestamp FROM "
+                         "FileSyncError ORDER BY id DESC LIMIT %d OFFSET %d",
+                         limit, offset);
+
+    pthread_mutex_lock (&mgr->priv->db_lock);
+    sqlite_foreach_selected_row (mgr->priv->db, sql,
+                               collect_file_sync_errors, array);
+    pthread_mutex_unlock (&mgr->priv->db_lock);
+
+    sqlite3_free (sql);
+    return array;
 }
