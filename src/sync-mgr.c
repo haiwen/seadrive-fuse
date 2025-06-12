@@ -635,6 +635,9 @@ record_sync_error (SeafSyncManager *mgr,
     SyncError *err, *new_err;
     gboolean found = FALSE;
 
+    // record sync error to database. 
+    seaf_repo_manager_record_sync_error (seaf->repo_mgr, repo_id, repo_name, path, err_id);
+
     pthread_mutex_lock (&mgr->priv->errors_lock);
 
     for (ptr = errors; ptr; ptr = ptr->next) {

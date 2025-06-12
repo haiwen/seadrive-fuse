@@ -553,4 +553,14 @@ seaf_repo_manager_get_account_by_repo_id (SeafRepoManager *mgr, const char *repo
 char *
 seaf_repo_manager_get_mount_path (SeafRepoManager *mgr, SeafRepo *repo, const char *file_path);
 
+int
+seaf_repo_manager_record_sync_error (SeafRepoManager *mgr,
+                                     const char *repo_id,
+                                     const char *repo_name,
+                                     const char *path,
+                                     int error_id);
+
+json_t *
+seaf_repo_manager_list_sync_errors (SeafRepoManager *mgr, int offset, int limit);
+
 #endif
