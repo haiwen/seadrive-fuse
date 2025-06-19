@@ -496,6 +496,7 @@ recv_response (void *contents, size_t size, size_t nmemb, void *userp)
     return realsize;
 }
 
+#define FS_ID_LIST_TIMEOUT_SEC 1800
 /* 5 minutes timeout for background requests. */
 #define HTTP_TIMEOUT_SEC 300
 /* 5 seconds timeout for foreground requests that can impact UI response time. */
@@ -4562,7 +4563,7 @@ get_needed_fs_id_list (HttpTxTask *task, Connection *conn, GList **fs_id_list)
     int curl_error;
     if (http_get (curl, url, task->token, &status,
                   &rsp_content, &rsp_size,
-                  NULL, NULL, FALSE, HTTP_TIMEOUT_SEC, &curl_error) < 0) {
+                  NULL, NULL, (!task->is_clone), FS_ID_LIST_TIMEOUT_SEC, &curl_error) < 0) {
         conn->release = TRUE;
         handle_curl_errors (task, curl_error);
         ret = -1;
