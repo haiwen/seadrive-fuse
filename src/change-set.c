@@ -546,14 +546,13 @@ remove_from_changeset (ChangeSet *changeset,
 }
 
 static char *
-commit_tree_recursive (const char *repo_id, ChangeSetDir *dir, gint64 *new_mtime)
+commit_tree_recursive (const char *repo_id, ChangeSetDir *dir)
 {
     ChangeSetDirent *dent;
     GHashTableIter iter;
     gpointer key, value;
     char *new_id;
     gint64 subdir_new_mtime;
-    gint64 dir_mtime = 0;
     SeafDir *seaf_dir;
     char *ret = NULL;
 
@@ -561,16 +560,13 @@ commit_tree_recursive (const char *repo_id, ChangeSetDir *dir, gint64 *new_mtime
     while (g_hash_table_iter_next (&iter, &key, &value)) {
         dent = value;
         if (dent->subdir) {
-            new_id = commit_tree_recursive (repo_id, dent->subdir, &subdir_new_mtime);
+            new_id = commit_tree_recursive (repo_id, dent->subdir);
             if (!new_id)
                 return NULL;
 
             memcpy (dent->id, new_id, 40);
-            dent->mtime = subdir_new_mtime;
             g_free (new_id);
         }
-        if (dir_mtime < dent->mtime)
-            dir_mtime = dent->mtime;
     }
 
     seaf_dir = changeset_dir_to_seaf_dir (dir);
@@ -590,8 +586,6 @@ commit_tree_recursive (const char *repo_id, ChangeSetDir *dir, gint64 *new_mtime
     ret = g_strdup(seaf_dir->dir_id);
 
 out:
-    if (ret != NULL)
-        *new_mtime = dir_mtime;
 
     seaf_dir_free (seaf_dir);
     return ret;
@@ -606,10 +600,8 @@ out:
 char *
 commit_tree_from_changeset (ChangeSet *changeset)
 {
-    gint64 mtime;
     char *root_id = commit_tree_recursive (changeset->repo_id,
-                                           changeset->tree_root,
-                                           &mtime);
+                                           changeset->tree_root);
 
     return root_id;
 }
