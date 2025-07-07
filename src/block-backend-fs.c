@@ -357,6 +357,13 @@ block_backend_fs_remove_store (BlockBackend *bend, const char *store_id)
     return 0;
 }
 
+static int
+block_backend_fs_rewind_block (BlockBackend *bend,
+                              BHandle *handle)
+{
+    return seaf_util_lseek (handle->fd, 0, SEEK_SET);
+}
+
 static char *
 get_block_path (BlockBackend *bend,
                 const char *block_sha1,
@@ -450,6 +457,7 @@ block_backend_fs_new (const char *seaf_dir, const char *tmp_dir)
     bend->block_handle_free = block_backend_fs_block_handle_free;
     bend->foreach_block = block_backend_fs_foreach_block;
     bend->remove_store = block_backend_fs_remove_store;
+    bend->rewind_block = block_backend_fs_rewind_block;
 
     return bend;
 
