@@ -786,14 +786,24 @@ http_put (CURL *curl, const char *url, const char *token,
     if (req_content) {
         memset (&req, 0, sizeof(req));
         req.content = req_content;
+        req.origin_content = req_content;
         req.size = req_size;
+        req.origin_size = req_size;
         curl_easy_setopt(curl, CURLOPT_READFUNCTION, send_request);
         curl_easy_setopt(curl, CURLOPT_READDATA, &req);
         curl_easy_setopt(curl, CURLOPT_INFILESIZE_LARGE, (curl_off_t)req_size);
+
+        curl_easy_setopt(curl, CURLOPT_SEEKFUNCTION, rewind_http_request);
+        curl_easy_setopt(curl, CURLOPT_SEEKDATA, &req);
     } else if (callback != NULL) {
         curl_easy_setopt(curl, CURLOPT_READFUNCTION, callback);
         curl_easy_setopt(curl, CURLOPT_READDATA, cb_data);
         curl_easy_setopt(curl, CURLOPT_INFILESIZE_LARGE, (curl_off_t)req_size);
+
+        if (rewind_cb != NULL) {
+            curl_easy_setopt(curl, CURLOPT_SEEKFUNCTION, rewind_cb);
+            curl_easy_setopt(curl, CURLOPT_SEEKDATA, cb_data);
+        }
     } else {
         curl_easy_setopt (curl, CURLOPT_INFILESIZE_LARGE, (curl_off_t)0);
     }
@@ -881,10 +891,15 @@ http_post_common (CURL *curl, const char *url,
     HttpRequest req;
     memset (&req, 0, sizeof(req));
     req.content = req_content;
+    req.origin_content = req_content;
     req.size = req_size;
+    req.origin_size = req_size;
     curl_easy_setopt(curl, CURLOPT_READFUNCTION, send_request);
     curl_easy_setopt(curl, CURLOPT_READDATA, &req);
     curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE_LARGE, (curl_off_t)req_size);
+
+    curl_easy_setopt(curl, CURLOPT_SEEKFUNCTION, rewind_http_request);
+    curl_easy_setopt(curl, CURLOPT_SEEKDATA, &req);
 
     curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
 
