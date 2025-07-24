@@ -189,8 +189,14 @@ seaf_sync_manager_unlock_file_on_server (SeafSyncManager *mgr,
 
 /* Sync errors */
 
+gboolean
+seaf_sync_manager_is_network_error (int error_id);
+
 json_t *
 seaf_sync_manager_list_sync_errors (SeafSyncManager *mgr);
+
+json_t *
+seaf_sync_manager_list_network_errors (SeafSyncManager *mgr, json_t *array);
 
 gboolean
 seaf_sync_manager_is_server_disconnected (SeafSyncManager *mgr);

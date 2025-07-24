@@ -626,6 +626,24 @@ send_sync_error_notification (const char *repo_id,
     mq_mgr_push_msg (seaf->mq_mgr, SEADRIVE_NOTIFY_CHAN, msg);
 }
 
+gboolean
+seaf_sync_manager_is_network_error (int error_id)
+{
+    switch (error_id) {
+    case SYNC_ERROR_ID_NETWORK:
+    case SYNC_ERROR_ID_RESOLVE_PROXY:
+    case SYNC_ERROR_ID_RESOLVE_HOST:
+    case SYNC_ERROR_ID_CONNECT:
+    case SYNC_ERROR_ID_SSL:
+    case SYNC_ERROR_ID_TX:
+    case SYNC_ERROR_ID_TX_TIMEOUT:
+    case SYNC_ERROR_ID_UNHANDLED_REDIRECT:
+        return TRUE;
+    default:
+        return FALSE;
+    }
+}
+
 static void
 record_sync_error (SeafSyncManager *mgr,
                    const char *repo_id, const char *repo_name,
@@ -712,6 +730,41 @@ seaf_sync_manager_list_sync_errors (SeafSyncManager *mgr)
 
     for (ptr = mgr->priv->sync_errors; ptr; ptr = ptr->next) {
         err = ptr->data;
+        obj = json_object ();
+        if (err->repo_id)
+            json_object_set_new (obj, "repo_id", json_string(err->repo_id));
+        if (err->repo_name)
+            json_object_set_new (obj, "repo_name", json_string(err->repo_name));
+        if (err->path)
+            json_object_set_new (obj, "path", json_string(err->path));
+        json_object_set_new (obj, "err_id", json_integer(err->err_id));
+        json_object_set_new (obj, "timestamp", json_integer(err->timestamp));
+        json_array_append_new (array, obj);
+    }
+
+    pthread_mutex_unlock (&mgr->priv->errors_lock);
+
+    return array;
+}
+
+json_t *
+seaf_sync_manager_list_network_errors (SeafSyncManager *mgr, json_t *array)
+{
+    GList *ptr;
+    SyncError *err;
+    json_t *obj;
+
+    if (!array) {
+        array = json_array ();
+    }
+
+    pthread_mutex_lock (&mgr->priv->errors_lock);
+
+    for (ptr = mgr->priv->sync_errors; ptr; ptr = ptr->next) {
+        err = ptr->data;
+        if (!seaf_sync_manager_is_network_error (err->err_id)) {
+            continue;
+        }
         obj = json_object ();
         if (err->repo_id)
             json_object_set_new (obj, "repo_id", json_string(err->repo_id));
