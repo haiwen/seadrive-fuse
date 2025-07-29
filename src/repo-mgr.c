@@ -4440,7 +4440,7 @@ seaf_repo_manager_record_sync_error (SeafRepoManager *mgr,
     int ret;
 
     // We only record network error in memory.
-    if (seaf_sync_manager_is_network_error (error_id)) {
+    if (sync_error_level(error_id) == SYNC_ERROR_LEVEL_NETWORK) {
         return 0;
     }
 
@@ -4503,7 +4503,7 @@ collect_file_sync_errors (sqlite3_stmt *stmt, void *data)
     err_id = sqlite3_column_int (stmt, 4);
     timestamp = sqlite3_column_int64 (stmt, 5);
 
-    if (seaf_sync_manager_is_network_error(err_id)) {
+    if (sync_error_level (err_id) == SYNC_ERROR_LEVEL_NETWORK) {
         return TRUE;
     }
 
