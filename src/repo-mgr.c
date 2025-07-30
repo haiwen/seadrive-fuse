@@ -4439,6 +4439,11 @@ seaf_repo_manager_record_sync_error (SeafRepoManager *mgr,
     char *sql;
     int ret;
 
+    // We only record network error in memory.
+    if (sync_error_level(error_id) == SYNC_ERROR_LEVEL_NETWORK) {
+        return 0;
+    }
+
     // record empty string to database.
     if (!repo_id)
         repo_id = "";
@@ -4497,6 +4502,10 @@ collect_file_sync_errors (sqlite3_stmt *stmt, void *data)
     path = (const char *)sqlite3_column_text (stmt, 3);
     err_id = sqlite3_column_int (stmt, 4);
     timestamp = sqlite3_column_int64 (stmt, 5);
+
+    if (sync_error_level (err_id) == SYNC_ERROR_LEVEL_NETWORK) {
+        return TRUE;
+    }
 
     obj = json_object ();
     if (repo_id)

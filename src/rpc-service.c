@@ -390,7 +390,7 @@ seafile_cancel_download (const char *server, const char *user, const char *full_
 static json_t *
 seafile_list_sync_errors (GError **error)
 {
-    return seaf_repo_manager_list_sync_errors (seaf->repo_mgr, 0, 50);
+    return seaf_sync_manager_list_sync_errors (seaf->sync_mgr);
 }
 
 static int

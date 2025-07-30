@@ -681,8 +681,8 @@ remove_sync_error (SeafSyncManager *mgr, const char *repo_id, const char *path)
     for (ptr = mgr->priv->sync_errors; ptr; ptr = ptr->next) {
         err = ptr->data;
         err_level = sync_error_level (err->err_id);
-        // Even though the repo was successfully synced, a file-level sync error was displayed.
-        if (err_level == SYNC_ERROR_LEVEL_FILE) {
+        // Only delete network error.
+        if (err_level != SYNC_ERROR_LEVEL_NETWORK) {
             continue;
         }
         if (g_strcmp0 (err->repo_id, repo_id) == 0 &&
@@ -1033,9 +1033,52 @@ seaf_sync_manager_new (SeafileSession *seaf)
     return mgr;
 }
 
+static void
+load_sync_errors (SeafileSession *seaf, SeafSyncManager *mgr)
+{
+    json_t *array = seaf_repo_manager_list_sync_errors (seaf->repo_mgr, 0, 50);
+    if (!array) {
+        return;
+    }
+
+    int i;
+    SyncError *err;
+    json_t *object, *member;
+    size_t n = json_array_size (array);
+    for (i = 0; i < n; ++i) {
+        err = g_new0 (SyncError, 1);
+        object = json_array_get (array, i);
+        member = json_object_get (object, "repo_id");
+        if (member) {
+            err->repo_id = g_strdup (json_string_value(member));
+        }
+        member = json_object_get (object, "repo_name");
+        if (member) {
+            err->repo_name = g_strdup (json_string_value(member));
+        }
+        member = json_object_get (object, "path");
+        if (member) {
+            err->path = g_strdup (json_string_value(member));
+        }
+        member = json_object_get (object, "err_id");
+        if (member) {
+            err->err_id = json_integer_value(member);
+        }
+        member = json_object_get (object, "timestamp");
+        if (member) {
+            err->timestamp = json_integer_value(member);
+        }
+        mgr->priv->sync_errors = g_list_prepend (mgr->priv->sync_errors, err);
+    }
+
+    json_decref (array);
+}
+
 int
 seaf_sync_manager_init (SeafSyncManager *mgr)
 {
+    load_sync_errors (seaf, mgr);
+
     return 0;
 }
 
