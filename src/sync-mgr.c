@@ -3690,6 +3690,40 @@ out:
     g_hash_table_replace (updated_files, g_strdup(op->path), file_info);
 }
 
+static void
+handle_update_file_attr_op (SeafRepo *repo, ChangeSet *changeset, const char *username,
+                            JournalOp *op, gboolean renamed_from_ignored,
+                            GHashTable *updated_files, gint64 *total_size,
+                            SeafileCrypt *crypt)
+{
+    unsigned char allzero[20] = {0};
+    FileCacheStat cache_st;
+    SeafStat st;
+
+    if (file_cache_mgr_stat (seaf->file_cache_mgr,
+                             repo->id, op->path,
+                             &cache_st) == 0) {
+        // Check if the file size has changed.
+        // If not only the file mtime has changed, but also the file size, then the file needs to be re-indexed.
+        if (cache_st.size != op->size) {
+            handle_update_file_op (repo, changeset, username, op, FALSE,
+                                    updated_files, &total_size, crypt);
+            return;
+        }
+    }
+
+    st.st_size = op->size;
+    st.st_mtime = op->mtime;
+    st.st_mode = op->mode;
+    add_to_changeset (changeset,
+                      DIFF_STATUS_MODIFIED,
+                      NULL,
+                      &st,
+                      username,
+                      op->path,
+                      NULL);
+}
+
 typedef struct CheckRenameAux {
     SeafRepo *repo;
     ChangeSet *changeset;
@@ -3963,16 +3997,8 @@ apply_journal_ops_to_changeset (SeafRepo *repo, ChangeSet *changeset,
                 break;
             }
 
-            st.st_size = op->size;
-            st.st_mtime = op->mtime;
-            st.st_mode = op->mode;
-            add_to_changeset (changeset,
-                              DIFF_STATUS_MODIFIED,
-                              NULL,
-                              &st,
-                              username,
-                              op->path,
-                              NULL);
+            handle_update_file_attr_op (repo, changeset, username, op, FALSE,
+                                        updated_files, &total_size, crypt);
             break;
         default:
             seaf_warning ("Unknwon op type %d, skipped.\n", op->type);
