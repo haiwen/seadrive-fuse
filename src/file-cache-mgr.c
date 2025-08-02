@@ -146,6 +146,9 @@ free_cached_file_handle (CachedFileHandle *file_handle)
     if (!file_handle)
         return;
 
+    // flush file to disk.
+    fsync (file_handle->fd);
+
     close (file_handle->fd);
     pthread_mutex_destroy (&file_handle->lock);
     cached_file_unref (file_handle->cached_file);
