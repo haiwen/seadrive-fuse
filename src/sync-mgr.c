@@ -3644,7 +3644,11 @@ handle_update_file_op (SeafRepo *repo, ChangeSet *changeset, const char *usernam
     /* If index doesn't complete, st will be all-zero. */
     memset (&st, 0, sizeof(st));
 
-    // get file mtime and size before index file.
+    // Get file mtime and size before index file.
+    // When batch uploading files, a situation may occur where files are being indexed while they are still being written.
+    // If files are indexed first and then their mtime and size are read, the files may not have been fully written at the time of indexing,
+    // resulting in the file size being inconsistent with the actual size.
+    // By first obtaining the mtime and size of the files, any subsequent updates to the files will trigger re-indexing
     if (file_cache_mgr_stat (seaf->file_cache_mgr,
                              repo->id, op->path,
                              &cache_st) == 0) {
