@@ -3644,6 +3644,19 @@ handle_update_file_op (SeafRepo *repo, ChangeSet *changeset, const char *usernam
     /* If index doesn't complete, st will be all-zero. */
     memset (&st, 0, sizeof(st));
 
+    // get file mtime and size before index file.
+    if (file_cache_mgr_stat (seaf->file_cache_mgr,
+                             repo->id, op->path,
+                             &cache_st) == 0) {
+        st.st_size = cache_st.size;
+        st.st_mtime = cache_st.mtime;
+        st.st_mode = op->mode;
+    } else {
+        seaf_warning ("Failed to stat file %s in repo %s, skip.\n",
+                      op->path, repo->id);
+        goto out;
+    }
+
     if (file_cache_mgr_index_file (seaf->file_cache_mgr,
                                    repo->id,
                                    repo->version,
@@ -3654,19 +3667,8 @@ handle_update_file_op (SeafRepo *repo, ChangeSet *changeset, const char *usernam
                                    &changed) < 0) {
         seaf_warning ("Failed to index file %s in repo %s, skip.\n",
                       op->path, repo->id);
+        memset (&st, 0, sizeof(st));
         goto out;
-    }
-
-    if (file_cache_mgr_stat (seaf->file_cache_mgr,
-                             repo->id, op->path,
-                             &cache_st) == 0) {
-        st.st_size = cache_st.size;
-        st.st_mtime = cache_st.mtime;
-        st.st_mode = op->mode;
-    } else {
-        st.st_size = op->size;
-        st.st_mtime = op->mtime;
-        st.st_mode = op->mode;
     }
 
     add_to_changeset (changeset,
