@@ -3713,7 +3713,7 @@ handle_update_file_attr_op (SeafRepo *repo, ChangeSet *changeset, const char *us
         // If not only the file mtime has changed, but also the file size, then the file needs to be re-indexed.
         if (cache_st.size != op->size) {
             handle_update_file_op (repo, changeset, username, op, FALSE,
-                                    updated_files, &total_size, crypt);
+                                    updated_files, total_size, crypt);
             return;
         }
     }
