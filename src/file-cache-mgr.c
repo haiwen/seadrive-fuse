@@ -283,7 +283,8 @@ cancel_fetch_task_by_file (FileCacheMgr *mgr, const char *file_key)
     pthread_mutex_lock (&mgr->priv->task_lock);
 
     handle = g_hash_table_lookup (mgr->priv->cache_tasks, file_key);
-    if (handle)
+    // When manually downloading a file, avoid cancellation by other read requests.
+    if (handle && !handle->is_manual)
         handle->fetch_canceled = TRUE;
 
     pthread_mutex_unlock (&mgr->priv->task_lock);
@@ -814,7 +815,7 @@ static int remove_file_attrs (const char *path);
 
 static int
 start_cache_task (FileCacheMgrPriv *priv, CachedFile *file, RepoTreeStat *st,
-                  const char *server, const char *user)
+                  const char *server, const char *user, gboolean is_manual)
 {
     char *ondisk_path = NULL;
     int flags;
@@ -868,6 +869,7 @@ start_cache_task (FileCacheMgrPriv *priv, CachedFile *file, RepoTreeStat *st,
             handle->cached_file->total_download = st->size;
             handle->server = g_strdup(server);
             handle->user = g_strdup(user);
+            handle->is_manual = is_manual;
 
             cached_file_ref (file);
 
@@ -966,7 +968,7 @@ get_cached_file (FileCacheMgrPriv *priv,
         goto out;
     }
 
-    if (start_cache_task (priv, cached_file, st, server, user) < 0) {
+    if (start_cache_task (priv, cached_file, st, server, user, FALSE) < 0) {
         seaf_warning ("Failed to start cache task for file %s in repo %s.\n",
                       file_path, repo_id);
         cached_file_unref (cached_file);
@@ -1016,7 +1018,7 @@ file_cache_mgr_cache_file (FileCacheMgr *mgr, const char *repo_id, const char *p
         goto out;
     }
 
-    if (start_cache_task (priv, cached_file, st, repo->server, repo->user) < 0) {
+    if (start_cache_task (priv, cached_file, st, repo->server, repo->user, TRUE) < 0) {
         seaf_warning ("Failed to start cache task for file %s in repo %s.\n",
                       path, repo_id);
     }
@@ -1290,7 +1292,7 @@ start_cache_task_before_read (FileCacheMgr *mgr,
 
     pthread_mutex_unlock (&priv->cache_lock);
 
-    start_cache_task (priv, file, st, repo->server, repo->user);
+    start_cache_task (priv, file, st, repo->server, repo->user, FALSE);
 
 out:
     seaf_repo_unref (repo);

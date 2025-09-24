@@ -24,6 +24,7 @@ typedef struct CachedFileHandle {
     gint64 file_size;
     gboolean is_readonly;
     gboolean fetch_canceled;
+    gboolean is_manual;
 
     gint64 start_download_time;
     gboolean notified_download_start;
