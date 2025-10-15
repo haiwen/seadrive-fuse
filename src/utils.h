@@ -29,6 +29,12 @@
 
 #define SeafStat struct stat
 
+#ifndef SEAFILE_CLIENT_VERSION
+#define SEAFILE_CLIENT_VERSION PACKAGE_VERSION
+#endif
+
+#define USER_AGENT_OS "Linux"
+
 
 int seaf_stat (const char *path, SeafStat *st);
 int seaf_fstat (int fd, SeafStat *st);
