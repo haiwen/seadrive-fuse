@@ -1,3 +1,9 @@
+seadrive-daemon (3.0.17) unstable; urgency=low
+
+  * new upstream release
+
+ -- Jonathan Xu <jonathan.xu@seafile.com>  Tue, 28 Oct 2025 10:30:00 +0800
+
 seadrive-daemon (3.0.16) unstable; urgency=low
 
   * new upstream release
