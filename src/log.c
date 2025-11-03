@@ -66,21 +66,15 @@ seafile_log_init (const char *_logfile)
 }
 
 const int
-seafile_log_reopen (const char *logfile_err, const char *logfile_old)
+seafile_log_reopen (const char *logfile_old)
 {
-    FILE *fp, *errfp;
-
-    if ((errfp = g_fopen (logfile_err, "a+")) == NULL) {
-        seaf_warning ("Failed to open file %s\n", logfile_err);
-        return -1;
-    }
+    FILE *fp;
 
     if (fclose(logfp) < 0) {
         seaf_warning ("Failed to close file %s\n", logfile);
-        fclose (errfp);
         return -1;
     }
-    logfp = errfp;
+    logfp = NULL;
 
     if (seaf_util_rename (logfile, logfile_old) < 0) {
         seaf_warning ("Failed to rename %s to %s, error: %s\n", logfile, logfile_old, strerror(errno));
@@ -92,10 +86,6 @@ seafile_log_reopen (const char *logfile_err, const char *logfile_old)
         return -1;
     }
     logfp = fp;
-
-    if (fclose (errfp) < 0) {
-        seaf_warning ("Failed to close file %s\n", logfile_err);
-    }
 
     return 0;
 }
@@ -163,16 +153,11 @@ check_and_reopen_log ()
         if (st.st_size >= MAX_LOG_SIZE) {
             char *dirname = g_path_get_dirname (logfile);
             char *logfile_old  = g_build_filename (dirname, "seadrive-old.log", NULL);
-            // seadrive-error.log is used to record log, when failed to open new log file.
-            char *logfile_err = g_build_filename (dirname, "seadrive-error.log", NULL);
 
-            if (seafile_log_reopen (logfile_err, logfile_old) >= 0) {
-                seaf_util_unlink (logfile_err);
-             }
+            seafile_log_reopen (logfile_old);
 
             g_free (dirname);
             g_free (logfile_old);
-            g_free (logfile_err);
         }
     }
 }
