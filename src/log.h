@@ -14,7 +14,6 @@
 #endif
 
 int seafile_log_init (const char *logfile);
-int seafile_log_reopen ();
 
 void
 seafile_debug_set_flags_string (const gchar *flags_string);
@@ -49,3 +48,6 @@ void seafile_debug_impl (SeafileDebugFlags flag, const gchar *format, ...);
 #endif
 
 FILE *seafile_get_logfp ();
+
+int
+seafile_log_rotate_start ();

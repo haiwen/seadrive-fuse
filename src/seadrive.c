@@ -493,6 +493,8 @@ main (int argc, char **argv)
 
     set_signal_handlers (seaf);
 
+    seafile_log_rotate_start ();
+
 #ifndef USE_GPL_CRYPTO
     seafile_curl_init();
 #endif
