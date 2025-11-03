@@ -9,6 +9,8 @@
 #include "log.h"
 #include "utils.h"
 
+#define MAX_LOG_SIZE 300 * 1024 * 1024 
+
 /* message with greater log levels will be ignored */
 static int seafile_log_level;
 static char *logfile;
@@ -63,27 +65,27 @@ seafile_log_init (const char *_logfile)
     return 0;
 }
 
-int
-seafile_log_reopen ()
+const int
+seafile_log_reopen (const char *logfile_old)
 {
-    FILE *fp, *oldfp;
+    FILE *fp;
 
-    if (strcmp(logfile, "-") == 0)
-        return 0;
+    if (fclose(logfp) < 0) {
+        seaf_warning ("Failed to close file %s\n", logfile);
+        return -1;
+    }
+    logfp = NULL;
+
+    if (seaf_util_rename (logfile, logfile_old) < 0) {
+        seaf_warning ("Failed to rename %s to %s, error: %s\n", logfile, logfile_old, strerror(errno));
+        return -1;
+    }
 
     if ((fp = g_fopen (logfile, "a+")) == NULL) {
-        seaf_message ("Failed to open file %s\n", logfile);
+        seaf_warning ("Failed to open file %s\n", logfile);
         return -1;
     }
-
-    //TODO: check file's health
-
-    oldfp = logfp;
     logfp = fp;
-    if (fclose(oldfp) < 0) {
-        seaf_message ("Failed to close file %s\n", logfile);
-        return -1;
-    }
 
     return 0;
 }
@@ -140,4 +142,49 @@ FILE *
 seafile_get_logfp ()
 {
     return logfp;
+}
+
+static void
+check_and_reopen_log ()
+{
+    SeafStat st;
+
+    if (g_strcmp0(logfile, "-") != 0 && seaf_stat (logfile, &st) >= 0) {
+        if (st.st_size >= MAX_LOG_SIZE) {
+            char *dirname = g_path_get_dirname (logfile);
+            char *logfile_old  = g_build_filename (dirname, "seadrive-old.log", NULL);
+
+            seafile_log_reopen (logfile_old);
+
+            g_free (dirname);
+            g_free (logfile_old);
+        }
+    }
+}
+
+static void*
+log_rotate (void *vdata)
+{
+    while (1) {
+        check_and_reopen_log ();
+        g_usleep (3600LL * G_USEC_PER_SEC);
+    }
+    return NULL;
+}
+
+int
+seafile_log_rotate_start ()
+{
+    pthread_t tid;
+    pthread_attr_t attr;
+    pthread_attr_init(&attr);
+    pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
+
+    int rc = pthread_create (&tid, &attr, log_rotate, NULL);
+    if (rc != 0) {
+        seaf_warning ("Failed to start log rotate thread: %s\n", strerror(rc));
+        return -1;
+    }
+
+    return 0;
 }
