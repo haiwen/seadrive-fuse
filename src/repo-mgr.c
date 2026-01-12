@@ -1284,6 +1284,12 @@ apply_journal_ops_to_repo_tree (SeafRepo *repo)
                 ret = -1;
                 goto out;
             }
+            rc = repo_tree_set_file_mode(tree, op->path, op->mode);
+            if (rc < 0) {
+                print_apply_op_error (repo->id, op, -rc);
+                ret = -1;
+                goto out;
+            }
             break;
         default:
             seaf_warning ("Unknown op type %d, skipped.\n", op->type);

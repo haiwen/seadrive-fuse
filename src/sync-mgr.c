@@ -3326,6 +3326,9 @@ merge_remote_head_to_repo_tree (SeafRepo *repo, const char *new_head_id)
             repo_tree_set_file_size (repo->tree,
                                      de->name,
                                      de->size);
+            repo_tree_set_file_mode (repo->tree,
+                                     de->name,
+                                     de->mode);
             repo_tree_set_file_id (repo->tree, de->name, id);
 
             break;

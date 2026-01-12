@@ -460,6 +460,7 @@ write_journal_worker (void *vdata)
                 op->type == OP_TYPE_UPDATE_ATTR) {
                 prev_op->size = op->size;
                 prev_op->mtime = op->mtime;
+                prev_op->mode = op->mode;
             }
             journal_op_free (op);
             g_atomic_int_inc (&journal->committed_ops);

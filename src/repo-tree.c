@@ -807,6 +807,26 @@ repo_tree_set_file_id (RepoTree *tree, const char *path, const char *new_id)
     return 0;
 }
 
+int
+repo_tree_set_file_mode (RepoTree *tree, const char *path, guint32 mode)
+{
+    RepoTreeDirent *dirent;
+
+    pthread_rwlock_wrlock (&tree->lock);
+
+    dirent = resolve_path (tree, path);
+    if (!dirent) {
+        pthread_rwlock_unlock (&tree->lock);
+        return -1;
+    }
+
+    dirent->mode = create_mode(mode);
+
+    pthread_rwlock_unlock (&tree->lock);
+
+    return 0;
+}
+
 gboolean
 repo_tree_is_empty_repo (RepoTree *tree)
 {
