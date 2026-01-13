@@ -3,13 +3,17 @@
 
 #if defined __linux__ || defined __APPLE__
 
-#include <fuse.h>
+#ifndef FUSE_USE_VERSION
+#define FUSE_USE_VERSION 30
+#endif
+#include <fuse3/fuse.h>
 
-int seadrive_fuse_getattr(const char *path, struct stat *stbuf);
+int seadrive_fuse_getattr(const char *path, struct stat *stbuf, struct fuse_file_info *fi);
 
 int seadrive_fuse_readdir(const char *path, void *buf,
                           fuse_fill_dir_t filler, off_t offset,
-                          struct fuse_file_info *info);
+                          struct fuse_file_info *info,
+                          enum fuse_readdir_flags flags);
 
 int seadrive_fuse_mknod (const char *path, mode_t mode, dev_t dev);
 
@@ -19,7 +23,7 @@ int seadrive_fuse_unlink (const char *path);
 
 int seadrive_fuse_rmdir (const char *path);
 
-int seadrive_fuse_rename (const char *oldpath, const char *newpath);
+int seadrive_fuse_rename (const char *oldpath, const char *newpath, unsigned int flags);
 
 int seadrive_fuse_open (const char *path, struct fuse_file_info *info);
 
@@ -31,13 +35,13 @@ int seadrive_fuse_write (const char *path, const char *buf, size_t size,
 
 int seadrive_fuse_release (const char *path, struct fuse_file_info *fi);
 
-int seadrive_fuse_truncate (const char *path, off_t length);
+int seadrive_fuse_truncate (const char *path, off_t length, struct fuse_file_info *fi);
 
 int seadrive_fuse_statfs (const char *path, struct statvfs *buf);
 
-int seadrive_fuse_chmod (const char *path, mode_t mode);
+int seadrive_fuse_chmod (const char *path, mode_t mode, struct fuse_file_info *fi);
 
-int seadrive_fuse_utimens (const char *, const struct timespec tv[2]);
+int seadrive_fuse_utimens (const char *, const struct timespec tv[2], struct fuse_file_info *fi);
 
 int seadrive_fuse_symlink (const char *from, const char *to);
 

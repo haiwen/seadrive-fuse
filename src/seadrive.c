@@ -41,9 +41,9 @@ static void print_version ()
 #include <fcntl.h>
 #include <sys/file.h>
 
-#define FUSE_USE_VERSION  26
-#include <fuse.h>
-#include <fuse_opt.h>
+#define FUSE_USE_VERSION 30
+#include <fuse3/fuse.h>
+#include <fuse3/fuse_opt.h>
 
 #include "fuse-ops.h"
 
