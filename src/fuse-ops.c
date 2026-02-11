@@ -415,6 +415,9 @@ seadrive_fuse_getattr(const char *path, struct stat *stbuf)
             else
                 stbuf->st_mode = S_IFREG | 0444;
         }
+        if (st.mode & 0100) {
+            stbuf->st_mode = stbuf->st_mode | 0100;
+        }
         stbuf->st_mtime = st.mtime;
         stbuf->st_nlink = 1;
         stbuf->st_uid = uid;
@@ -1699,6 +1702,11 @@ seadrive_fuse_statfs (const char *path, struct statvfs *buf)
 int
 seadrive_fuse_chmod (const char *path, mode_t mode)
 {
+    RepoTreeStat tree_st;
+    char *repo_id = NULL, *file_path = NULL;
+    SeafRepo *repo = NULL;
+    JournalOp *op = NULL;
+    int ret = 0;
     FusePathComps comps;
 
     seaf_debug ("chmod %s called. mode = %o.\n", path, mode);
@@ -1709,7 +1717,52 @@ seadrive_fuse_chmod (const char *path, mode_t mode)
         return -ENOENT;
     }
 
-    return 0;
+    if (!comps.account_info) {
+        goto out;
+    }
+
+    if (comps.root_path != NULL ||
+        !comps.repo_type ||
+        !comps.repo_info ||
+        !comps.repo_path)
+        goto out;
+
+    repo_id = comps.repo_info->id;
+    file_path = comps.repo_path;
+
+    repo = seaf_repo_manager_get_repo (seaf->repo_mgr, repo_id);
+    if (!repo) {
+        seaf_warning ("Failed to get repo %s.\n", repo_id);
+        ret = -ENOENT;
+        goto out;
+    }
+
+    if (repo_tree_stat_path (repo->tree, file_path, &tree_st) < 0) {
+        ret = -ENOENT;
+        goto out;
+    }
+
+    if (S_ISDIR(tree_st.mode)) {
+        goto out;
+    }
+
+    if (tree_st.mode == mode)
+        goto out;
+
+    repo_tree_set_file_mode (repo->tree, file_path, mode);
+    op = journal_op_new (OP_TYPE_UPDATE_ATTR, file_path, NULL,
+                         tree_st.size, tree_st.mtime, mode);
+
+    if (journal_append_op (repo->journal, op) < 0) {
+        seaf_warning ("Failed to append op to journal of repo %s.\n", repo->id);
+        ret = -ENOMEM;
+        journal_op_free (op);
+    }
+
+out:
+    path_comps_free (&comps);
+    seaf_repo_unref (repo);
+    return ret;
 }
 
 int
@@ -1866,27 +1919,27 @@ seadrive_fuse_getxattr (const char *path, const char *name, char *value, size_t 
     }
 
     if (!comps.account_info) {
-        ret = -EINVAL;
+        ret = -ENODATA;
         goto out;
     } else if (!comps.repo_type) {
-        ret = -EINVAL;
+        ret = -ENODATA;
         goto out;
     } else if (comps.root_path) {
-        ret = -EINVAL;
+        ret = -ENODATA;
         goto out;
     } else if (!comps.repo_info && !comps.repo_path) {
         /* Root directory */
-        ret = -EINVAL;
+        ret = -ENODATA;
         goto out;
     } else if (!comps.repo_path) {
         /* Repo directory */
-        ret = -EINVAL;
+        ret = -ENODATA;
         goto out;
     }
 
     ret = file_cache_mgr_getxattr (seaf->file_cache_mgr, comps.repo_info->id, comps.repo_path, name, value, size);
     if (ret < 0) {
-        ret = -ENOENT;
+        ret = -ENODATA;
         goto out;
     }
 

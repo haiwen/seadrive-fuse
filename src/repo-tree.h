@@ -77,6 +77,10 @@ repo_tree_set_file_size (RepoTree *tree, const char *path,
                          gint64 size);
 
 int
+repo_tree_set_file_mode (RepoTree *tree, const char *path,
+                         guint32 mode);
+
+int
 repo_tree_set_file_id (RepoTree *tree, const char *path, const char *new_id);
 
 gboolean
