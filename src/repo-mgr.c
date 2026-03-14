@@ -2761,6 +2761,7 @@ seaf_account_free (SeafAccount *account)
     g_free (account->username);
     g_free (account->nickname);
     g_free (account->token);
+    g_free (account->name);
     g_free (account->fileserver_addr);
     g_free (account->unique_id);
     g_free (account);
@@ -3541,6 +3542,7 @@ seaf_repo_manager_get_account_repos (SeafRepoManager *mgr,
 
     pthread_rwlock_unlock (&mgr->priv->account_lock);
 
+    g_free (account_key);
     return ret;
 }
 
@@ -3575,6 +3577,7 @@ seaf_repo_manager_get_account_repo_ids (SeafRepoManager *mgr,
 
     pthread_rwlock_unlock (&mgr->priv->account_lock);
 
+    g_free (account_key);
     return ret;
 }
 
