@@ -699,6 +699,31 @@ remove_sync_error (SeafSyncManager *mgr, const char *repo_id, const char *path)
     pthread_mutex_unlock (&mgr->priv->errors_lock);
 }
 
+void
+seaf_sync_manager_remove_sync_error_by_err_id (SeafSyncManager *mgr, const char *repo_id, const char *path, int err_id)
+{
+    GList *ptr;
+    SyncError *err;
+
+    pthread_mutex_lock (&mgr->priv->errors_lock);
+
+    for (ptr = mgr->priv->sync_errors; ptr; ptr = ptr->next) {
+        err = ptr->data;
+        if (g_strcmp0 (err->repo_id, repo_id) == 0 &&
+            g_strcmp0 (err->path, path) == 0 &&
+            err->err_id == err_id) {
+            mgr->priv->sync_errors = g_list_delete_link (mgr->priv->sync_errors, ptr);
+            g_free (err->repo_id);
+            g_free (err->repo_name);
+            g_free (err->path);
+            g_free (err);
+            break;
+        }
+    }
+
+    pthread_mutex_unlock (&mgr->priv->errors_lock);
+}
+
 json_t *
 seaf_sync_manager_list_sync_errors (SeafSyncManager *mgr)
 {

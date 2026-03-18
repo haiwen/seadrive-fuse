@@ -269,6 +269,12 @@ gboolean
 seaf_repo_manager_ignored_on_commit (const char *filename);
 
 void
+seaf_sync_manager_remove_sync_error_by_err_id (SeafSyncManager *mgr,
+                                               const char *repo_id,
+                                               const char *path,
+                                               int err_id);
+
+void
 seaf_sync_manager_check_locks_and_folder_perms (SeafSyncManager *manager, const char *server_url);
 
 void
