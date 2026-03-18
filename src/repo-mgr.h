@@ -563,4 +563,7 @@ seaf_repo_manager_record_sync_error (SeafRepoManager *mgr,
 json_t *
 seaf_repo_manager_list_sync_errors (SeafRepoManager *mgr, int offset, int limit);
 
+int
+seaf_repo_manager_remove_sync_error_by_err_id (SeafRepoManager *mgr, const char *repo_id, const char *path, int err_id);
+
 #endif

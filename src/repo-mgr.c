@@ -4549,3 +4549,25 @@ seaf_repo_manager_list_sync_errors (SeafRepoManager *mgr, int offset, int limit)
     sqlite3_free (sql);
     return array;
 }
+
+int
+seaf_repo_manager_remove_sync_error_by_err_id (SeafRepoManager *mgr, const char *repo_id, const char *path, int err_id)
+{
+    int ret = 0;    
+    char *sql = NULL;
+
+    if (path != NULL)
+        sql = sqlite3_mprintf ("DELETE FROM FileSyncError WHERE repo_id='%q' AND path='%q' AND err_id=%d",
+                               repo_id, path, err_id);
+    else
+        sql = sqlite3_mprintf ("DELETE FROM FileSyncError WHERE repo_id='%q' AND path IS NULL AND err_id=%d",
+                               repo_id, err_id);
+
+    pthread_mutex_lock (&mgr->priv->db_lock);
+    ret = sqlite_query_exec (mgr->priv->db, sql);
+    pthread_mutex_unlock (&mgr->priv->db_lock);
+
+    sqlite3_free (sql);
+
+    return ret;
+}

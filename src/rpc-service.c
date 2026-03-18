@@ -393,6 +393,18 @@ seafile_list_sync_errors (GError **error)
     return seaf_sync_manager_list_sync_errors (seaf->sync_mgr);
 }
 
+int
+seafile_del_file_sync_error(const char *repo_id, const char *path, int err_id, GError **error)
+{
+    int ret = 0;
+    ret = seaf_repo_manager_remove_sync_error_by_err_id(seaf->repo_mgr, repo_id, path, err_id);
+    if (ret != 0) {
+        return ret;
+    }
+    seaf_sync_manager_remove_sync_error_by_err_id(seaf->sync_mgr, repo_id, path, err_id);
+    return 0;
+}
+
 static int
 seafile_cache_path (const char *repo_id, const char *path, GError **error)
 {
@@ -807,6 +819,11 @@ register_rpc_service ()
                                      seafile_list_sync_errors,
                                      "seafile_list_sync_errors",
                                      searpc_signature_json__void());
+
+    searpc_server_register_function ("seadrive-rpcserver",
+                                     seafile_del_file_sync_error,
+                                     "seafile_del_file_sync_error",
+                                     searpc_signature_int__string_string_int());
 
     searpc_server_register_function ("seadrive-rpcserver",
                                      seafile_cache_path,
