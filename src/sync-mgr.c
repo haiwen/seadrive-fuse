@@ -31,7 +31,7 @@
 #define CHECK_LOCKED_FILES_INTERVAL 30 /* 30s */
 #define CHECK_FOLDER_PERMS_INTERVAL 30 /* 30s */
 #define MAX_RESYNC_COUNT 3
-#define CHECK_REPO_LIST_INTERVAL 1     /* 1s */
+#define CHECK_REPO_LIST_INTERVAL 30     /* 30s */
 
 #define JWT_TOKEN_EXPIRE_TIME 3*24*3600 /* 3 days */
 
