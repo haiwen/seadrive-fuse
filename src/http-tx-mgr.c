@@ -41,6 +41,9 @@
 #define HTTP_BLOCK_MISSING 446
 #define HTTP_REPO_TOO_LARGE 447
 #define HTTP_INTERNAL_SERVER_ERROR 500
+#define HTTP_SERVERR_BAD_GATEWAY 502
+#define HTTP_SERVERR_UNAVAILABLE 503
+#define HTTP_SERVERR_TIMEOUT 504
 
 #define RESET_BYTES_INTERVAL_MSEC 1000
 
@@ -1147,8 +1150,12 @@ http_error_to_http_task_error (int status)
         return HTTP_TASK_ERR_FORBIDDEN;
     else if (status == HTTP_UNAUTHORIZED)
         return HTTP_TASK_ERR_FORBIDDEN;
-    else if (status >= HTTP_INTERNAL_SERVER_ERROR)
+    else if (status == HTTP_INTERNAL_SERVER_ERROR)
         return HTTP_TASK_ERR_SERVER;
+    else if (status == HTTP_SERVERR_BAD_GATEWAY ||
+             status == HTTP_SERVERR_UNAVAILABLE ||
+             status == HTTP_SERVERR_TIMEOUT)
+        return HTTP_TASK_ERR_NET;
     else if (status == HTTP_NOT_FOUND)
         return HTTP_TASK_ERR_SERVER;
     else if (status == HTTP_NO_QUOTA)
