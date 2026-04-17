@@ -1742,6 +1742,11 @@ seadrive_fuse_chmod (const char *path, mode_t mode)
         goto out;
     }
 
+    if (!seaf_repo_manager_is_path_writable (seaf->repo_mgr, repo_id, file_path)) {
+        ret = -EACCES;
+        goto out;
+    }
+
     if (S_ISDIR(tree_st.mode)) {
         goto out;
     }
@@ -1811,6 +1816,11 @@ seadrive_fuse_utimens (const char *path, const struct timespec tv[2])
 
     if (repo_tree_stat_path (repo->tree, file_path, &tree_st) < 0) {
         ret = -ENOENT;
+        goto out;
+    }
+
+    if (!seaf_repo_manager_is_path_writable (seaf->repo_mgr, repo_id, file_path)) {
+        ret = -EACCES;
         goto out;
     }
 
