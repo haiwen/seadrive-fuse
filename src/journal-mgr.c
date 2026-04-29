@@ -83,7 +83,7 @@ journal_op_new (JournalOpType type, const char *path, const char *new_path,
     op->new_path = g_strdup(new_path);
     op->size = size;
     op->mtime = mtime;
-    op->mode = mode;
+    op->mode = create_mode(mode);
     return op;
 }
 
