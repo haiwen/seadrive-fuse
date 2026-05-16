@@ -1421,7 +1421,7 @@ static void update_current_repos(HttpAPIGetResult *result, void *user_data)
             result->http_status == HTTP_SERVERR_TIMEOUT) {
             seaf_repo_manager_set_account_server_disconnected (seaf->repo_mgr, account->server, account->username, TRUE);
         }
-        record_sync_error (seaf->sync_mgr, acconunt->server, NULL, NULL, NULL,
+        record_sync_error (seaf->sync_mgr, account->server, NULL, NULL, NULL,
                            transfer_error_to_error_id (result->error_code));
         g_atomic_int_set (&seaf->sync_mgr->priv->server_disconnected, 1);
         return;
