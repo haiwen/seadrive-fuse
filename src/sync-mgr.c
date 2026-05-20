@@ -687,7 +687,7 @@ record_sync_error (SeafSyncManager *mgr,
 }
 
 static void
-remove_sync_error (SeafSyncManager *mgr, const char *repo_id, const char *path)
+remove_network_error (SeafSyncManager *mgr, const char *repo_id, const char *path)
 {
     GList *ptr;
     SyncError *err;
@@ -725,6 +725,7 @@ seaf_sync_manager_remove_sync_error_by_err_id (SeafSyncManager *mgr, const char 
 {
     GList *ptr;
     SyncError *err;
+    int err_level = sync_error_level (err_id);
 
     pthread_mutex_lock (&mgr->priv->errors_lock);
 
@@ -734,6 +735,9 @@ seaf_sync_manager_remove_sync_error_by_err_id (SeafSyncManager *mgr, const char 
             g_strcmp0 (err->path, path) == 0 &&
             err->err_id == err_id) {
             mgr->priv->sync_errors = g_list_delete_link (mgr->priv->sync_errors, ptr);
+            if (err_level == SYNC_ERROR_LEVEL_NETWORK && err->server != NULL) {
+                g_hash_table_remove (mgr->priv->server_net_errors, err->server);
+            }
             g_free (err->server);
             g_free (err->repo_id);
             g_free (err->repo_name);
@@ -942,7 +946,7 @@ transition_sync_state (SyncTask *task, int new_state)
             update_sync_info_error_state (task, new_state);
 
             if (new_state == SYNC_STATE_DONE)
-                remove_sync_error (seaf->sync_mgr, task->info->repo_info->id, NULL);
+                remove_network_error (seaf->sync_mgr, task->info->repo_info->id, NULL);
 
             if (task->repo)
                 seaf_repo_unref (task->repo);
@@ -1432,7 +1436,7 @@ static void update_current_repos(HttpAPIGetResult *result, void *user_data)
         if (account->server_disconnected) {
             seaf_sync_manager_check_locks_and_folder_perms (seaf->sync_mgr, account->fileserver_addr);
         }
-        remove_sync_error (seaf->sync_mgr, NULL, NULL);
+        remove_network_error (seaf->sync_mgr, NULL, NULL);
         g_atomic_int_set (&seaf->sync_mgr->priv->server_disconnected, 0);
         seaf_repo_manager_set_account_server_disconnected (seaf->repo_mgr, account->server, account->username, FALSE);
     }
