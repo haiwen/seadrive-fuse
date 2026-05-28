@@ -146,7 +146,7 @@ journal_op_from_json (const char *json_str)
             goto out;
         }
     } else if (type == OP_TYPE_CREATE_FILE || type == OP_TYPE_UPDATE_FILE ||
-               type == OP_TYPE_UPDATE_ATTR) {
+               type == OP_TYPE_UPDATE_ATTR || type == OP_TYPE_MKDIR) {
         if (!json_object_has_member (obj, "size")) {
             seaf_warning ("Invalid operation format: no size.\n");
             goto out;
@@ -186,7 +186,7 @@ journal_op_to_json (JournalOp *op)
     if (op->type == OP_TYPE_RENAME) {
         json_object_set_string_member (obj, "new_path", op->new_path);
     } else if (op->type == OP_TYPE_CREATE_FILE || op->type == OP_TYPE_UPDATE_FILE ||
-               op->type == OP_TYPE_UPDATE_ATTR) {
+               op->type == OP_TYPE_UPDATE_ATTR || op->type == OP_TYPE_MKDIR) {
         json_object_set_int_member (obj, "size", op->size);
         json_object_set_int_member (obj, "mtime", op->mtime);
         json_object_set_int_member (obj, "mode", op->mode);
