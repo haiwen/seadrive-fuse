@@ -41,10 +41,6 @@ static void print_version ()
 #include <fcntl.h>
 #include <sys/file.h>
 
-#define FUSE_USE_VERSION  26
-#include <fuse.h>
-#include <fuse_opt.h>
-
 #include "fuse-ops.h"
 
 struct options {

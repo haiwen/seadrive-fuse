@@ -2,9 +2,6 @@
 
 #if defined __linux__ || defined __APPLE__
 
-#define FUSE_USE_VERSION  26
-#include <fuse.h>
-
 #ifdef __APPLE__
 #include <libproc.h>
 #endif
@@ -327,7 +324,7 @@ get_category_dir_mtime (const char *server, const char *user, RepoType type)
 }
 
 int
-seadrive_fuse_getattr(const char *path, struct stat *stbuf)
+seadrive_fuse_getattr(const char *path, struct stat *stbuf, struct fuse_file_info *fi)
 {
     FusePathComps comps;
     int ret = 0;
@@ -441,7 +438,7 @@ readdir_root_accounts (void *buf, fuse_fill_dir_t filler)
     }
     for (ptr = accounts; ptr; ptr = ptr->next) {
         account = ptr->data;
-        filler (buf, account->name, NULL, 0);
+        filler (buf, account->name, NULL, 0, 0);
     }
     g_list_free_full (accounts, (GDestroyNotify)seaf_account_free);
 
@@ -462,10 +459,10 @@ readdir_root (AccountInfo *account, void *buf, fuse_fill_dir_t filler)
         type_str = ptr->data;
 #ifdef __APPLE__
         dname_nfd = g_utf8_normalize (type_str, -1, G_NORMALIZE_NFD);
-        filler (buf, dname_nfd, NULL, 0);
+        filler (buf, dname_nfd, NULL, 0, 0);
         g_free (dname_nfd);
 #else
-        filler (buf, type_str, NULL, 0);
+        filler (buf, type_str, NULL, 0, 0);
 #endif
     }
 
@@ -501,10 +498,10 @@ readdir_category (AccountInfo *account, RepoType type, void *buf, fuse_fill_dir_
         dname = g_path_get_basename (info->display_name);
 #ifdef __APPLE__
         dname_nfd = g_utf8_normalize (dname, -1, G_NORMALIZE_NFD);
-        filler (buf, dname_nfd, NULL, 0);
+        filler (buf, dname_nfd, NULL, 0, 0);
         g_free (dname_nfd);
 #else
-        filler (buf, dname, NULL, 0);
+        filler (buf, dname, NULL, 0, 0);
 #endif
 
         g_free (dname);
@@ -553,7 +550,7 @@ readdir_repo (const char *repo_id, const char *path, void *buf, fuse_fill_dir_t 
         if (seaf_repo_manager_is_path_invisible (seaf->repo_mgr, repo_id, dname)) {
             continue;
         }
-        filler (buf, dname, NULL, 0);
+        filler (buf, dname, NULL, 0, 0);
     }
     g_hash_table_destroy (dirents);
 
@@ -565,7 +562,8 @@ out:
 int
 seadrive_fuse_readdir(const char *path, void *buf,
                       fuse_fill_dir_t filler, off_t offset,
-                      struct fuse_file_info *info)
+                      struct fuse_file_info *info,
+                      enum fuse_readdir_flags flags)
 {
     FusePathComps comps;
     int ret = 0;
@@ -575,8 +573,8 @@ seadrive_fuse_readdir(const char *path, void *buf,
     if (!seaf->started)
         return 0;
 
-    filler(buf, ".", NULL, 0);
-    filler(buf, "..", NULL, 0);
+    filler(buf, ".", NULL, 0, 0);
+    filler(buf, "..", NULL, 0, 0);
 
     memset (&comps, 0, sizeof(comps));
 
@@ -1228,7 +1226,7 @@ out:
     return ret;
 }
 
-int seadrive_fuse_rename (const char *oldpath, const char *newpath)
+int seadrive_fuse_rename (const char *oldpath, const char *newpath, unsigned int flags)
 {
     FusePathComps comps1, comps2;
     int ret = 0;
@@ -1559,7 +1557,7 @@ int seadrive_fuse_release (const char *path, struct fuse_file_info *info)
 }
 
 int
-seadrive_fuse_truncate (const char *path, off_t length)
+seadrive_fuse_truncate (const char *path, off_t length, struct fuse_file_info *fi)
 {
     FusePathComps comps;
     char *repo_id, *file_path;
@@ -1700,7 +1698,7 @@ seadrive_fuse_statfs (const char *path, struct statvfs *buf)
 }
 
 int
-seadrive_fuse_chmod (const char *path, mode_t mode)
+seadrive_fuse_chmod (const char *path, mode_t mode, struct fuse_file_info *fi)
 {
     RepoTreeStat tree_st;
     char *repo_id = NULL, *file_path = NULL;
@@ -1771,7 +1769,7 @@ out:
 }
 
 int
-seadrive_fuse_utimens (const char *path, const struct timespec tv[2])
+seadrive_fuse_utimens (const char *path, const struct timespec tv[2], struct fuse_file_info *fi)
 {
     RepoTreeStat tree_st;
     char *repo_id = NULL, *file_path = NULL;
