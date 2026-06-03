@@ -4533,6 +4533,7 @@ update_path_xattr_task_free (UpdatePathXattrTask *task)
     g_free (task);
 }
 
+// Update mount-path xattrs asynchronously to avoid blocking sync status updates.
 static void *
 update_path_xattr_worker (void *data)
 {
