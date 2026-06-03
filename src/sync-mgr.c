@@ -184,6 +184,7 @@ struct _SeafSyncManagerPriv {
     struct SeafTimer *update_sync_status_timer;
     GHashTable *active_paths;
     pthread_mutex_t paths_lock;
+    GAsyncQueue *update_path_xattr_queue;
 
     GAsyncQueue *lock_file_job_queue;
 
@@ -200,6 +201,14 @@ struct _SeafSyncManagerPriv {
     pthread_mutex_t del_confirmation_lock;
     GHashTable *del_confirmation_tasks;
 };
+
+struct _UpdatePathXattrTask {
+    char *mount_path;
+    char *key;
+    char *value;
+    gsize size;
+};
+typedef struct _UpdatePathXattrTask UpdatePathXattrTask;
 
 struct _ActivePathsInfo {
     struct SyncStatusTree *syncing_tree;
@@ -1024,6 +1033,9 @@ seaf_sync_manager_set_task_error (SyncTask *task, int error)
 static void
 active_paths_info_free (ActivePathsInfo *info);
 
+static void *
+update_path_xattr_worker (void *data);
+
 SeafSyncManager*
 seaf_sync_manager_new (SeafileSession *seaf)
 {
@@ -1085,6 +1097,7 @@ seaf_sync_manager_new (SeafileSession *seaf)
     pthread_mutex_init (&mgr->priv->errors_lock, NULL);
 
     mgr->priv->cache_file_task_queue = g_async_queue_new ();
+    mgr->priv->update_path_xattr_queue = g_async_queue_new ();
 
     mgr->priv->auto_sync_enabled = TRUE;
 
@@ -1153,6 +1166,7 @@ on_repo_http_uploaded (SeafileSession *seaf,
 static void* check_space_usage_thread (void *data);
 static void* lock_file_worker (void *data);
 static void* cache_file_task_worker (void *data);
+static void* update_path_xattr_worker (void *data);
 
 int
 seaf_sync_manager_start (SeafSyncManager *mgr)
@@ -1188,6 +1202,11 @@ seaf_sync_manager_start (SeafSyncManager *mgr)
     rc = pthread_create (&tid, NULL, cache_file_task_worker, mgr->priv->cache_file_task_queue);
     if (rc != 0) {
         seaf_warning ("Failed to create cache file task worker thread: %s.\n", strerror(rc));
+    }
+
+    rc = pthread_create (&tid, &attr, update_path_xattr_worker, mgr->priv->update_path_xattr_queue);
+    if (rc != 0) {
+        seaf_warning ("Failed to create update path xattr worker thread: %s.\n", strerror(rc));
     }
 
     return 0;
@@ -4502,6 +4521,54 @@ seaf_sync_manager_free_server_info (HttpServerInfo *info)
 
 /* Path sync status. */
 
+static void
+update_path_xattr_task_free (UpdatePathXattrTask *task)
+{
+    if (!task)
+        return;
+
+    g_free (task->mount_path);
+    g_free (task->key);
+    g_free (task->value);
+    g_free (task);
+}
+
+static void *
+update_path_xattr_worker (void *data)
+{
+    GAsyncQueue *queue = data;
+    UpdatePathXattrTask *task;
+
+    while (1) {
+        task = g_async_queue_pop (queue);
+        if (!task)
+            break;
+
+        seaf_setxattr (task->mount_path, task->key, task->value, task->size);
+        update_path_xattr_task_free (task);
+    }
+
+    return NULL;
+}
+
+static void
+update_path_xattr (SeafSyncManager *mgr,
+                   char *mount_path,
+                   const char *key,
+                   const char *value,
+                   gsize size)
+{
+    UpdatePathXattrTask *task = NULL;
+
+    task = g_new0 (UpdatePathXattrTask, 1);
+    task->mount_path = g_strdup (mount_path);
+    task->key = g_strdup (key);
+    task->value = g_strdup (value);
+    task->size = size;
+
+    g_async_queue_push (mgr->priv->update_path_xattr_queue, task);
+}
+
 static ActivePathsInfo *
 active_paths_info_new (SeafRepo *repo)
 {
@@ -4571,9 +4638,9 @@ seaf_sync_manager_update_active_path (SeafSyncManager *mgr,
 
     if (mount_path) {
         if (status == SYNC_STATUS_SYNCING)
-            seaf_setxattr (mount_path, "user.seafile-status", "syncing", 8);
+            update_path_xattr (mgr, mount_path, "user.seafile-status", "syncing", 8);
         else
-            seaf_setxattr (mount_path, "user.seafile-status", "cached", 7);
+            update_path_xattr (mgr, mount_path, "user.seafile-status", "cached", 7);
     }
 
     seaf_repo_unref (repo);
