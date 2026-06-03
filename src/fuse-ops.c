@@ -1875,7 +1875,7 @@ seadrive_fuse_setxattr (const char *path, const char *name, const char *value,
     seaf_debug ("setxattr: %s %s\n", path, name);
 
     // Manual setting of extended properties related to file locking is only supported. 
-    if (g_strcmp0("name", "user.seafile-status") != 0){
+    if (g_strcmp0(name, "user.seafile-status") != 0){
         return 0;
     }
 
