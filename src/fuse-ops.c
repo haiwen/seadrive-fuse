@@ -362,6 +362,7 @@ seadrive_fuse_getattr(const char *path, struct stat *stbuf)
         stbuf->st_mode = S_IFDIR | 0755;
         stbuf->st_nlink = 2;
         stbuf->st_size = 4096;
+        stbuf->st_blocks = 8;
         stbuf->st_uid = uid;
         stbuf->st_gid = gid;
         if (comps.multi_account && comps.account_info)
@@ -372,6 +373,7 @@ seadrive_fuse_getattr(const char *path, struct stat *stbuf)
         stbuf->st_mode = S_IFDIR | 0755;
         stbuf->st_nlink = 2;
         stbuf->st_size = 4096;
+        stbuf->st_blocks = 8;
         stbuf->st_uid = uid;
         stbuf->st_gid = gid;
         stbuf->st_mtime = get_category_dir_mtime (comps.account_info->server, comps.account_info->username, comps.repo_type);
@@ -380,6 +382,7 @@ seadrive_fuse_getattr(const char *path, struct stat *stbuf)
         stbuf->st_mode = S_IFDIR | 0755;
         stbuf->st_nlink = 2;
         stbuf->st_size = 4096;
+        stbuf->st_blocks = 8;
         stbuf->st_mtime = comps.repo_info->mtime;
         stbuf->st_uid = uid;
         stbuf->st_gid = gid;
@@ -404,12 +407,14 @@ seadrive_fuse_getattr(const char *path, struct stat *stbuf)
                                                                        comps.repo_path));
         if (S_ISDIR(st.mode)) {
             stbuf->st_size = 4096;
+            stbuf->st_blocks = 8;
             if (is_writable)
                 stbuf->st_mode = S_IFDIR | 0755;
             else
                 stbuf->st_mode = S_IFDIR | 0555;
         } else {
             stbuf->st_size = st.size;
+            stbuf->st_blocks = (st.size + 511) / 512;
             if (is_writable)
                 stbuf->st_mode = S_IFREG | 0644;
             else
