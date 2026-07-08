@@ -4552,6 +4552,11 @@ update_path_xattr_worker (void *data)
     return NULL;
 }
 
+// Updating xattrs on the mounted path may block in the filesystem layer.
+// A common sequence is that the fuse reads the current xattr while sync code tries to set a new one on the same file,
+// and FUSE cannot handle those xattr operations on the same path concurrently.
+// These status updates are triggered frequently during sync,
+// so doing the setxattr() work in a background worker avoids stalling the sync path.
 static void
 update_path_xattr (SeafSyncManager *mgr,
                    char *mount_path,
