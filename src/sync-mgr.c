@@ -4552,11 +4552,13 @@ update_path_xattr_worker (void *data)
     return NULL;
 }
 
-// Updating xattrs on the mounted path may block in the filesystem layer.
-// A common sequence is that the fuse reads the current xattr while sync code tries to set a new one on the same file,
-// and FUSE cannot handle those xattr operations on the same path concurrently.
-// These status updates are triggered frequently during sync,
-// so doing the setxattr() work in a background worker avoids stalling the sync path.
+// seadrive-fuse updates xattrs to notify Nautilus to refresh file sync status.
+// Such xattr updates are triggered during file download and file upload.
+// When downloading a file, the fuse read callback function will block waiting for the file from being cached.
+// The file fetch worker tries to update xattr for the file (via mount path) when it fetches a file, which in turn calls into seadrive-fuse.
+// Fuse dosesn't seem to allow concurrent operations on the same file path. So the fuse call to update xattr is in turn waiting for fuse read to finish,
+// which causes deadlock between the tow fuse calls.
+// Moving the xattr update fuse calls out of the file fetch worker code path will avoid the deadlock. So it's executed asynchronously.
 static void
 update_path_xattr (SeafSyncManager *mgr,
                    char *mount_path,
