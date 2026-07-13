@@ -774,3 +774,28 @@ parse_fileserver_addr (const char *server_addr)
         return g_strndup (server_addr, sep - server_addr);
     }
 }
+
+char *ca_paths[] = {
+    "/etc/ssl/certs/ca-certificates.crt",
+    "/etc/ssl/certs/ca-bundle.crt",
+    "/etc/pki/tls/certs/ca-bundle.crt",
+    "/usr/share/ssl/certs/ca-bundle.crt",
+    "/usr/local/share/certs/ca-root-nss.crt",
+    "/etc/ssl/cert.pem",
+};
+
+const char *
+load_ca_bundle_path ()
+{
+    int i;
+    const char *ca_path = NULL;
+
+    for (i = 0; i < sizeof(ca_paths) / sizeof(ca_paths[0]); i++) {
+        ca_path = ca_paths[i];
+        if (seaf_util_exists (ca_path)) {
+            return ca_path;
+        }
+    }
+
+    return NULL;
+}

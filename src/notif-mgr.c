@@ -46,6 +46,8 @@ typedef struct NotifServer {
 struct _SeafNotifManagerPriv {
     pthread_mutex_t server_lock;
     GHashTable *servers;
+
+    char *ca_bundle_path;
 };
 
 // The Message structure is used to send messages to the server.
@@ -95,6 +97,17 @@ seaf_notif_manager_new (SeafileSession *seaf)
     pthread_mutex_init (&mgr->priv->server_lock, NULL);
     mgr->priv->servers = g_hash_table_new_full (g_str_hash, g_str_equal,
                                             g_free, NULL);
+
+    const char *ca_path = NULL;
+#ifndef USE_GPL_CRYPTO
+    ca_path = load_ca_bundle_path ();
+#endif
+    const char *env_ca_path = g_getenv("SEAFILE_SSL_CA_PATH");
+    if (env_ca_path) {
+        mgr->priv->ca_bundle_path = g_strdup (env_ca_path);
+    } else if (ca_path) {
+        mgr->priv->ca_bundle_path = g_strdup (ca_path);
+    }
 
     return mgr;
 }
@@ -865,6 +878,8 @@ lws_context_new (gboolean use_ssl)
     char *socks_proxy_addr = NULL;
     gboolean has_auth = proxy_has_auth ();
 
+    SeafNotifManagerPriv *priv = seaf->notif_mgr->priv;
+
     memset(&info, 0, sizeof info);
     info.port = CONTEXT_PORT_NO_LISTEN;
     info.protocols = protocols;
@@ -890,24 +905,21 @@ lws_context_new (gboolean use_ssl)
         }
     }
 
-    char *ca_path = g_build_filename (seaf->seaf_dir, "ca-bundle.pem", NULL);
     if (use_ssl) {
          info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
-         info.client_ssl_ca_filepath = ca_path;
+         info.client_ssl_ca_filepath = priv->ca_bundle_path;
     }
 
     context = lws_create_context(&info);
     if (!context) {
         g_free (http_proxy_addr);
         g_free (socks_proxy_addr);
-        g_free (ca_path);
         seaf_warning ("failed to create libwebsockets context\n");
         return NULL;
     }
 
     g_free (http_proxy_addr);
     g_free (socks_proxy_addr);
-    g_free (ca_path);
     return context;
 }
 

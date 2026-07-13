@@ -264,4 +264,7 @@ static inline unsigned int create_mode(unsigned int mode)
 
 char *
 parse_fileserver_addr (const char *server_addr);
+
+const char *
+load_ca_bundle_path ();
 #endif
