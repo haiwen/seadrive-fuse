@@ -103,7 +103,7 @@ seaf_notif_manager_new (SeafileSession *seaf)
     ca_path = load_ca_bundle_path ();
 #endif
     const char *env_ca_path = g_getenv("SEAFILE_SSL_CA_PATH");
-    if (env_ca_path) {
+    if (env_ca_path && seaf_util_exists (env_ca_path)) {
         mgr->priv->ca_bundle_path = g_strdup (env_ca_path);
     } else if (ca_path) {
         mgr->priv->ca_bundle_path = g_strdup (ca_path);
