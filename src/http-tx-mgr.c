@@ -385,30 +385,14 @@ http_tx_manager_start (HttpTxManager *mgr)
 
 #ifndef USE_GPL_CRYPTO
 
-char *ca_paths[] = {
-    "/etc/ssl/certs/ca-certificates.crt",
-    "/etc/ssl/certs/ca-bundle.crt",
-    "/etc/pki/tls/certs/ca-bundle.crt",
-    "/usr/share/ssl/certs/ca-bundle.crt",
-    "/usr/local/share/certs/ca-root-nss.crt",
-    "/etc/ssl/cert.pem",
-};
-
 static void
 load_ca_bundle(CURL *curl)
 {
     const char *env_ca_path = seaf->http_tx_mgr->priv->env_ca_bundle_path;
     int i;
     const char *ca_path;
-    gboolean found = FALSE;
 
-    for (i = 0; i < sizeof(ca_paths) / sizeof(ca_paths[0]); i++) {
-        ca_path = ca_paths[i];
-        if (seaf_util_exists (ca_path)) {
-            found = TRUE;
-            break;
-        }
-    }
+    ca_path = load_ca_bundle_path ();
 
     if (env_ca_path) {
         if (seaf_util_exists (env_ca_path)) {
@@ -417,7 +401,7 @@ load_ca_bundle(CURL *curl)
         }
     }
 
-    if (found)
+    if (ca_path)
         curl_easy_setopt (curl, CURLOPT_CAINFO, ca_path);
 }
 
