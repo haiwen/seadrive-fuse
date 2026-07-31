@@ -649,6 +649,9 @@ record_sync_error (SeafSyncManager *mgr,
     int err_level = sync_error_level (err_id);
     gboolean skip_notif = FALSE;
 
+    if (!path)
+        path = "";
+
     // record sync error to database. 
     seaf_repo_manager_record_sync_error (seaf->repo_mgr, repo_id, repo_name, path, err_id);
 
@@ -696,12 +699,15 @@ record_sync_error (SeafSyncManager *mgr,
     pthread_mutex_unlock (&mgr->priv->errors_lock);
 }
 
-static void
-remove_network_error (SeafSyncManager *mgr, const char *server, const char *repo_id, const char *path)
+void
+seaf_sync_manager_remove_network_error (SeafSyncManager *mgr, const char *server, const char *repo_id, const char *path)
 {
     GList *ptr;
     SyncError *err;
     int err_level = -1;
+
+    if (!path)
+        path = "";
 
     pthread_mutex_lock (&mgr->priv->errors_lock);
 
@@ -737,6 +743,9 @@ seaf_sync_manager_remove_sync_error_by_err_id (SeafSyncManager *mgr, const char 
     GList *ptr;
     SyncError *err;
     int err_level = sync_error_level (err_id);
+
+    if (!path)
+        path = "";
 
     pthread_mutex_lock (&mgr->priv->errors_lock);
 
@@ -962,7 +971,7 @@ transition_sync_state (SyncTask *task, int new_state)
                 const char *server = NULL;
                 if (task->repo)
                     server = task->repo->server;
-                remove_network_error (seaf->sync_mgr, server, task->info->repo_info->id, NULL);
+                seaf_sync_manager_remove_network_error (seaf->sync_mgr, server, task->info->repo_info->id, NULL);
             }
 
             if (task->repo)
@@ -1138,6 +1147,8 @@ load_sync_errors (SeafileSession *seaf, SeafSyncManager *mgr)
         member = json_object_get (object, "path");
         if (member) {
             err->path = g_strdup (json_string_value(member));
+        } else {
+            err->path = g_strdup ("");
         }
         member = json_object_get (object, "err_id");
         if (member) {
@@ -1147,7 +1158,7 @@ load_sync_errors (SeafileSession *seaf, SeafSyncManager *mgr)
         if (member) {
             err->timestamp = json_integer_value(member);
         }
-        mgr->priv->sync_errors = g_list_prepend (mgr->priv->sync_errors, err);
+        mgr->priv->sync_errors = g_list_append (mgr->priv->sync_errors, err);
     }
 
     json_decref (array);
@@ -1463,7 +1474,7 @@ static void update_current_repos(HttpAPIGetResult *result, void *user_data)
         if (account->server_disconnected) {
             seaf_sync_manager_check_locks_and_folder_perms (seaf->sync_mgr, account->fileserver_addr);
         }
-        remove_network_error (seaf->sync_mgr, account->server, NULL, NULL);
+        seaf_sync_manager_remove_network_error (seaf->sync_mgr, account->server, NULL, NULL);
         g_atomic_int_set (&seaf->sync_mgr->priv->server_disconnected, 0);
         seaf_repo_manager_set_account_server_disconnected (seaf->repo_mgr, account->server, account->username, FALSE);
     }

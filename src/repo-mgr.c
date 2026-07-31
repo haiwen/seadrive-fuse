@@ -3504,6 +3504,8 @@ seaf_repo_manager_delete_account (SeafRepoManager *mgr,
         ret = -1;
     }
 
+    seaf_sync_manager_remove_network_error (seaf->sync_mgr, server, NULL, NULL);
+
     g_free (account_key);
     return ret;
 }
@@ -4523,6 +4525,9 @@ collect_file_sync_errors (sqlite3_stmt *stmt, void *data)
         json_object_set_new (obj, "repo_name", json_string(repo_name));
     if (path)
         json_object_set_new (obj, "path", json_string(path));
+    else {
+        json_object_set_new (obj, "path", json_string(""));
+    }
     json_object_set_new (obj, "err_id", json_integer(err_id));
     json_object_set_new (obj, "timestamp", json_integer(timestamp));
     json_array_append_new (array, obj);
@@ -4555,6 +4560,9 @@ seaf_repo_manager_remove_sync_error_by_err_id (SeafRepoManager *mgr, const char 
 {
     int ret = 0;    
     char *sql = NULL;
+
+    if (!path)
+        path = "";
 
     if (path != NULL)
         sql = sqlite3_mprintf ("DELETE FROM FileSyncError WHERE repo_id='%q' AND path='%q' AND err_id=%d",
