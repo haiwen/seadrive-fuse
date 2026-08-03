@@ -290,7 +290,6 @@ seaf_sync_manager_add_del_confirmation (SeafSyncManager *mgr,
 void
 seaf_sync_manager_remove_network_error (SeafSyncManager *mgr,
                                         const char *server,
-                                        const char *repo_id,
-                                        const char *path);
+                                        const char *repo_id);
 
 #endif
