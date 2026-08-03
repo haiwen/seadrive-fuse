@@ -697,7 +697,7 @@ record_sync_error (SeafSyncManager *mgr,
 }
 
 static void
-remove_network_error (SeafSyncManager *mgr, const char *server, const char *repo_id, const char *path)
+seaf_sync_manager_remove_network_error (SeafSyncManager *mgr, const char *server, const char *repo_id)
 {
     GList *ptr, *next;
     SyncError *err;
@@ -713,27 +713,15 @@ remove_network_error (SeafSyncManager *mgr, const char *server, const char *repo
         if (err_level != SYNC_ERROR_LEVEL_NETWORK) {
             continue;
         }
-        if (repo_id) {
-            if (g_strcmp0 (err->server, server) == 0 &&
-                g_strcmp0 (err->repo_id, repo_id) == 0 &&
-                g_strcmp0 (err->path, path) == 0) {
+
+        if (g_strcmp0 (err->server, server) == 0) {
+            if (!repo_id || repo_id && g_strcmp0 (err->repo_id, repo_id) == 0) {
                 mgr->priv->sync_errors = g_list_delete_link (mgr->priv->sync_errors, ptr);
                 g_free (err->server);
                 g_free (err->repo_id);
                 g_free (err->repo_name);
                 g_free (err->path);
                 g_free (err);
-                break;
-            }
-        } else {
-            if (g_strcmp0 (err->server, server) == 0) {
-                mgr->priv->sync_errors = g_list_delete_link (mgr->priv->sync_errors, ptr);
-                g_free (err->server);
-                g_free (err->repo_id);
-                g_free (err->repo_name);
-                g_free (err->path);
-                g_free (err);
-                continue;
             }
         }
     }
@@ -742,12 +730,6 @@ remove_network_error (SeafSyncManager *mgr, const char *server, const char *repo
         g_hash_table_remove (mgr->priv->server_net_errors, server);
 
     pthread_mutex_unlock (&mgr->priv->errors_lock);
-}
-
-void
-seaf_sync_manager_remove_network_error (SeafSyncManager *mgr, const char *server, const char *repo_id)
-{
-    remove_network_error (mgr, server, repo_id, NULL);
 }
 
 void
