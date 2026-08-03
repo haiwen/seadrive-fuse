@@ -697,36 +697,37 @@ record_sync_error (SeafSyncManager *mgr,
 }
 
 static void
-remove_network_error (SeafSyncManager *mgr, const char *server, const char *repo_id, const char *path)
+seaf_sync_manager_remove_network_error (SeafSyncManager *mgr, const char *server, const char *repo_id)
 {
-    GList *ptr;
+    GList *ptr, *next;
     SyncError *err;
     int err_level = -1;
 
     pthread_mutex_lock (&mgr->priv->errors_lock);
 
-    for (ptr = mgr->priv->sync_errors; ptr; ptr = ptr->next) {
+    for (ptr = mgr->priv->sync_errors; ptr; ptr = next) {
+        next = ptr->next;
         err = ptr->data;
         err_level = sync_error_level (err->err_id);
         // Only delete network error.
         if (err_level != SYNC_ERROR_LEVEL_NETWORK) {
             continue;
         }
-        if (err->server != NULL) {
-            g_hash_table_remove (mgr->priv->server_net_errors, err->server);
-        }
-        if (g_strcmp0 (err->server, server) == 0 &&
-            g_strcmp0 (err->repo_id, repo_id) == 0 &&
-            g_strcmp0 (err->path, path) == 0) {
-            mgr->priv->sync_errors = g_list_delete_link (mgr->priv->sync_errors, ptr);
-            g_free (err->server);
-            g_free (err->repo_id);
-            g_free (err->repo_name);
-            g_free (err->path);
-            g_free (err);
-            break;
+
+        if (g_strcmp0 (err->server, server) == 0) {
+            if (!repo_id || repo_id && g_strcmp0 (err->repo_id, repo_id) == 0) {
+                mgr->priv->sync_errors = g_list_delete_link (mgr->priv->sync_errors, ptr);
+                g_free (err->server);
+                g_free (err->repo_id);
+                g_free (err->repo_name);
+                g_free (err->path);
+                g_free (err);
+            }
         }
     }
+
+    if (server)
+        g_hash_table_remove (mgr->priv->server_net_errors, server);
 
     pthread_mutex_unlock (&mgr->priv->errors_lock);
 }
@@ -962,7 +963,7 @@ transition_sync_state (SyncTask *task, int new_state)
                 const char *server = NULL;
                 if (task->repo)
                     server = task->repo->server;
-                remove_network_error (seaf->sync_mgr, server, task->info->repo_info->id, NULL);
+                seaf_sync_manager_remove_network_error (seaf->sync_mgr, server, task->info->repo_info->id);
             }
 
             if (task->repo)
@@ -1147,7 +1148,7 @@ load_sync_errors (SeafileSession *seaf, SeafSyncManager *mgr)
         if (member) {
             err->timestamp = json_integer_value(member);
         }
-        mgr->priv->sync_errors = g_list_prepend (mgr->priv->sync_errors, err);
+        mgr->priv->sync_errors = g_list_append (mgr->priv->sync_errors, err);
     }
 
     json_decref (array);
@@ -1463,7 +1464,7 @@ static void update_current_repos(HttpAPIGetResult *result, void *user_data)
         if (account->server_disconnected) {
             seaf_sync_manager_check_locks_and_folder_perms (seaf->sync_mgr, account->fileserver_addr);
         }
-        remove_network_error (seaf->sync_mgr, account->server, NULL, NULL);
+        seaf_sync_manager_remove_network_error (seaf->sync_mgr, account->server, NULL);
         g_atomic_int_set (&seaf->sync_mgr->priv->server_disconnected, 0);
         seaf_repo_manager_set_account_server_disconnected (seaf->repo_mgr, account->server, account->username, FALSE);
     }

@@ -3504,6 +3504,8 @@ seaf_repo_manager_delete_account (SeafRepoManager *mgr,
         ret = -1;
     }
 
+    seaf_sync_manager_remove_network_error (seaf->sync_mgr, server, NULL);
+
     g_free (account_key);
     return ret;
 }
@@ -4458,8 +4460,6 @@ seaf_repo_manager_record_sync_error (SeafRepoManager *mgr,
         repo_id = "";
     if (!repo_name)
         repo_name = "";
-    if (!path)
-        path = "";
 
     pthread_mutex_lock (&mgr->priv->db_lock);
 
