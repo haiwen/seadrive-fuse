@@ -699,34 +699,47 @@ record_sync_error (SeafSyncManager *mgr,
 static void
 remove_network_error (SeafSyncManager *mgr, const char *server, const char *repo_id, const char *path)
 {
-    GList *ptr;
+    GList *ptr, *next;
     SyncError *err;
     int err_level = -1;
 
     pthread_mutex_lock (&mgr->priv->errors_lock);
 
-    for (ptr = mgr->priv->sync_errors; ptr; ptr = ptr->next) {
+    for (ptr = mgr->priv->sync_errors; ptr; ptr = next) {
+        next = ptr->next;
         err = ptr->data;
         err_level = sync_error_level (err->err_id);
         // Only delete network error.
         if (err_level != SYNC_ERROR_LEVEL_NETWORK) {
             continue;
         }
-        if (err->server != NULL) {
-            g_hash_table_remove (mgr->priv->server_net_errors, err->server);
-        }
-        if (g_strcmp0 (err->server, server) == 0 &&
-            g_strcmp0 (err->repo_id, repo_id) == 0 &&
-            g_strcmp0 (err->path, path) == 0) {
-            mgr->priv->sync_errors = g_list_delete_link (mgr->priv->sync_errors, ptr);
-            g_free (err->server);
-            g_free (err->repo_id);
-            g_free (err->repo_name);
-            g_free (err->path);
-            g_free (err);
-            break;
+        if (repo_id) {
+            if (g_strcmp0 (err->server, server) == 0 &&
+                g_strcmp0 (err->repo_id, repo_id) == 0 &&
+                g_strcmp0 (err->path, path) == 0) {
+                mgr->priv->sync_errors = g_list_delete_link (mgr->priv->sync_errors, ptr);
+                g_free (err->server);
+                g_free (err->repo_id);
+                g_free (err->repo_name);
+                g_free (err->path);
+                g_free (err);
+                break;
+            }
+        } else {
+            if (g_strcmp0 (err->server, server) == 0) {
+                mgr->priv->sync_errors = g_list_delete_link (mgr->priv->sync_errors, ptr);
+                g_free (err->server);
+                g_free (err->repo_id);
+                g_free (err->repo_name);
+                g_free (err->path);
+                g_free (err);
+                continue;
+            }
         }
     }
+
+    if (server)
+        g_hash_table_remove (mgr->priv->server_net_errors, server);
 
     pthread_mutex_unlock (&mgr->priv->errors_lock);
 }

@@ -4460,8 +4460,6 @@ seaf_repo_manager_record_sync_error (SeafRepoManager *mgr,
         repo_id = "";
     if (!repo_name)
         repo_name = "";
-    if (!path)
-        path = "";
 
     pthread_mutex_lock (&mgr->priv->db_lock);
 
