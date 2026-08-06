@@ -696,7 +696,7 @@ record_sync_error (SeafSyncManager *mgr,
     pthread_mutex_unlock (&mgr->priv->errors_lock);
 }
 
-static void
+void
 seaf_sync_manager_remove_network_error (SeafSyncManager *mgr, const char *server, const char *repo_id)
 {
     GList *ptr, *next;
