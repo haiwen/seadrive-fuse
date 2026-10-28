@@ -1,2 +1,2 @@
 
-from rpcclient import SeadriveRpcClient as RpcClient
+from .rpcclient import SeadriveRpcClient as RpcClient
