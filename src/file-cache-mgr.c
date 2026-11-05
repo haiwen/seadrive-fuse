@@ -2624,17 +2624,14 @@ file_cache_mgr_is_fetching_file (FileCacheMgr *mgr)
 
 int
 file_cache_mgr_utimen (FileCacheMgr *mgr, const char *repo_id,
-                       const char *path, time_t mtime, time_t atime)
+                       const char *path, const struct timespec tv[2])
 {
     int ret = 0;
-    struct utimbuf times;
     char *ondisk_path = g_build_filename (mgr->priv->base_path, repo_id, path, NULL);
 
-    times.actime = atime;
-    times.modtime = mtime;
-    ret = utime (ondisk_path, &times);
+    ret = utimensat (AT_FDCWD, ondisk_path, tv, 0);
     if (ret < 0) {
-        seaf_warning ("Failed to utime %s: %s\n", ondisk_path, strerror(errno));
+        seaf_warning ("Failed to utimensat %s: %s\n", ondisk_path, strerror(errno));
         ret = (-errno);
     }
 

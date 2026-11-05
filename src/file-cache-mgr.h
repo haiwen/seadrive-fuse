@@ -219,7 +219,7 @@ void
 file_cache_mgr_cache_file (FileCacheMgr *mgr, const char *repo_id, const char *path, struct _RepoTreeStat *st);
 
 int
-file_cache_mgr_utimen (FileCacheMgr *mgr, const char *repo_id, const char *path, time_t mtime, time_t atime);
+file_cache_mgr_utimen (FileCacheMgr *mgr, const char *repo_id, const char *path, const struct timespec tv[2]);
 
 /* Functions that only works for files and folders under root directory.
  * Except for library folders, the root directory can also contain some special

@@ -16,7 +16,7 @@ Build-Depends:
     valac,
     libjansson-dev,
     dh-python,
-    libfuse-dev,
+    libfuse3-dev,
     libsearpc-dev,
 Standards-Version: 3.9.5
 Homepage: http://seafile.com
@@ -28,6 +28,7 @@ Depends:
     ${shlibs:Depends},
     ${misc:Depends},
     ${python:Depends},
+    fuse3,
 Suggests: seadrive-gui, seadrive-cli
 Description: SeaDrive daemon
  File syncing and sharing software with file encryption and group

@@ -41,11 +41,8 @@ static void print_version ()
 #include <fcntl.h>
 #include <sys/file.h>
 
-#define FUSE_USE_VERSION  26
-#include <fuse.h>
-#include <fuse_opt.h>
-
 #include "fuse-ops.h"
+#include <fuse_opt.h>
 
 struct options {
     char *seafile_dir;
@@ -82,6 +79,7 @@ static struct fuse_opt seadrive_fuse_opts[] = {
 };
 
 static struct fuse_operations seadrive_fuse_ops = {
+    .init = seadrive_fuse_init,
     .getattr = seadrive_fuse_getattr,
     .readdir = seadrive_fuse_readdir,
     .mknod = seadrive_fuse_mknod,
@@ -546,6 +544,13 @@ main (int argc, char **argv)
     }
 
     seaf_message ("rpc server started.\n");
+
+#if FUSE_VERSION >= FUSE_MAKE_VERSION(3, 12)
+    /* libfuse >= 3.12 limits worker threads to 10, but reads block until the
+     * file is downloaded. Inserted first so a user-supplied -o max_threads wins.
+     */
+    fuse_opt_insert_arg (&args, 1, "-omax_threads=64");
+#endif
 
     fuse_main(args.argc, args.argv, &seadrive_fuse_ops, NULL);
     fuse_opt_free_args (&args);
