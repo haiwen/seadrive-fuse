@@ -340,10 +340,18 @@ repo_tree_readdir (RepoTree *tree, const char *path, GHashTable *dirents)
         st->size = dirent->size;
         st->mtime = dirent->mtime;
         sub_path = g_build_path ("/", path, dirent->name, NULL);
-        if (seaf_repo_manager_is_path_invisible (seaf->repo_mgr, tree->repo_id, sub_path)) {
-            g_free (sub_path);
-            continue;
+        if (S_ISDIR(st->mode)) {
+            if (seaf_repo_manager_is_dir_invisible (seaf->repo_mgr, tree->repo_id, sub_path)) {
+                g_free (sub_path);
+                continue;
+            }
+        } else {
+            if (seaf_repo_manager_is_path_invisible (seaf->repo_mgr, tree->repo_id, sub_path)) {
+                g_free (sub_path);
+                continue;
+            }
         }
+
         g_free (sub_path);
         g_hash_table_insert (dirents, g_strdup(dirent->name), st);
     }

@@ -905,23 +905,105 @@ is_path_invisible_recursive (const char *repo_id, const char *path)
     }
 }
 
+static gboolean
+is_visible_permission (const char *permission)
+{
+    return !permission || strcmp (permission, "r") == 0 ||
+        strcmp (permission, "rw") == 0;
+}
+
+// Check the path's self permission, ignoring descendants.
 gboolean
 seaf_repo_manager_is_path_invisible (SeafRepoManager *mgr,
                                      const char *repo_id,
                                      const char *path)
 {
-    SeafRepo *repo;
-    gboolean ret;
-
-    repo = seaf_repo_manager_get_repo (mgr, repo_id);
-    if (!repo) {
-        return TRUE;
+    if (!path || g_strcmp0 (path, ".") == 0) {
+        return FALSE;
     }
 
-    ret = is_path_invisible_recursive (repo_id, path);
+    char *permission = get_folder_perm_by_path (repo_id, path);
 
-    seaf_repo_unref (repo);
-    return ret;
+    return !is_visible_permission(permission);
+}
+
+// Find an visible permission at or below path.
+// Only effective visible permissions on descendants are considered.
+static gboolean
+include_folder_perm (SeafRepoManager *mgr, const char *repo_id,
+                     const char *path)
+{
+    GList *user_perms, *group_perms, *ptr;
+    GList *lists[2];
+    char *abs_path, *prefix;
+    char *permission;
+    gboolean found = FALSE;
+
+    if (!path || g_strcmp0 (path, ".") == 0) {
+        return FALSE;
+    }
+
+    if (path[0] != '/') {
+        abs_path = g_strconcat ("/", path, NULL);
+    } else {
+        abs_path = g_strdup (path);
+    }
+
+    if (strcmp (abs_path, "/") == 0) {
+        prefix = g_strdup ("/");
+    } else {
+        prefix = g_strconcat (abs_path, "/", NULL);
+    }
+
+    pthread_mutex_lock (&mgr->priv->perm_lock);
+    user_perms = g_hash_table_lookup (mgr->priv->user_perms, repo_id);
+    group_perms = g_hash_table_lookup (mgr->priv->group_perms, repo_id);
+    lists[0] = user_perms;
+    lists[1] = group_perms;
+
+    for (int i = 0; i < 2 && !found; ++i) {
+        for (ptr = lists[i]; ptr; ptr = ptr->next) {
+            FolderPerm *perm = ptr->data;
+
+            if (!g_str_has_prefix (perm->path, prefix)) {
+                continue;
+            }
+
+            permission = lookup_folder_perm (user_perms, perm->path);
+            if (!permission)
+                permission = lookup_folder_perm (group_perms, perm->path);
+            if (is_visible_permission(permission)) {
+                found = TRUE;
+                break;
+            }
+        }
+    }
+    pthread_mutex_unlock (&mgr->priv->perm_lock);
+
+    g_free (prefix);
+    g_free (abs_path);
+    return found;
+}
+
+// A dir is visible if its self permission or any descendant's effective
+// permission is visible.
+gboolean
+seaf_repo_manager_is_dir_invisible (SeafRepoManager *mgr,
+                                    const char *repo_id,
+                                    const char *path)
+{
+    char *permission;
+
+    if (!path || g_strcmp0 (path, ".") == 0) {
+        return FALSE;
+    }
+
+    permission = get_folder_perm_by_path (repo_id, path);
+    if (is_visible_permission (permission)) {
+        return FALSE;
+    }
+
+    return !include_folder_perm (mgr, repo_id, path);
 }
 
 static gboolean
