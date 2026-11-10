@@ -310,6 +310,11 @@ seaf_repo_manager_is_path_invisible(SeafRepoManager *mgr,
                                     const char *path);
 
 gboolean
+seaf_repo_manager_is_dir_invisible (SeafRepoManager *mgr,
+                                    const char *repo_id,
+                                    const char *path);
+
+gboolean
 seaf_repo_manager_include_invisible_perm (SeafRepoManager *mgr,
                                           const char *repo_id);
 
